@@ -104,16 +104,19 @@ def run(source_root: Path, allow_pending: bool) -> None:
             fatal(f'{module}: volume mapping changed between Compose files')
         if set(base['services'])!=set(a['compose_services']) or set(override['services'])!=set(a['compose_services']):
             fatal(f'{module}: registry/Compose services differ')
-        # Public routes have exactly one canonical port-qualified magic name,
-        # plus a value interpolation: both Coolify parser paths must see it.
+        # Public domain routes must be declared only as canonical Coolify
+        # magic keys. Never interpolate SERVICE_URL_* in Compose values:
+        # Docker Compose resolves variables before Coolify can supply them.
         if module in {'admin-api', 'admin-ui'}:
             public_port = '8000' if module == 'admin-api' else '8080'
             service_key = f'briareus-{module}'
             public_key = 'PUBLIC_API_URL' if module == 'admin-api' else 'PUBLIC_UI_URL'
             magic_key = 'SERVICE_URL_' + service_key.upper().replace('-', '_') + '_' + public_port
             public_env = override['services'][service_key]['environment']
-            if public_env.get(magic_key) != '/' or public_env.get(public_key) != '${' + magic_key + '}':
-                fatal(f'{module}: both canonical Coolify generated-domain discovery paths required')
+            if public_env.get(magic_key) != '/' or public_key in public_env:
+                fatal(f'{module}: invalid Coolify magic domain or unnecessary PUBLIC_* URL')
+            if any('${SERVICE_URL_' in str(v) for v in public_env.values()):
+                fatal(f'{module}: SERVICE_URL_* must never be Compose-interpolated')
             exposed = base['services'][service_key].get('expose', [])
             if public_port not in [str(x) for x in exposed]:
                 fatal(f'{module}: public domain port mismatch')
