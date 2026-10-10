@@ -500,7 +500,7 @@
     {
       "bytes": 6969,
       "path": "services/authorization/_browser_telemetry.py",
-      "sha256": "663722840fc98ca8b6d0c78041f5a2f6dfc61d1360aaba123f4206ddd62b254a"
+      "sha256": "e5949bb1a7dd5f7b9bea56933837eb04cfc88be17ba0708b5f245b979e54e5d9"
     },
     {
       "bytes": 1325,
@@ -703,9 +703,9 @@
       "sha256": "81ff29ad2a168ba70a18c711e8cc8fcaa9037c5fe98a89037e3bc02043a55ef4"
     },
     {
-      "bytes": 9642,
+      "bytes": 4765,
       "path": "services/authorization/platform_composition.py",
-      "sha256": "f7625145aa1c2dfb3a069c6de9af0548ae82cfff3522fd72f0fa0a57400b547d"
+      "sha256": "2c31d76db6ac31975a64744f1687ed77e9dff62d405c70173d8e84e52f6b4df4"
     },
     {
       "bytes": 267,
@@ -1993,7 +1993,7 @@
       "sha256": "ffed8d3806289c75e707b00e0882ce6ec36194885506f98e278404069bee1df3"
     }
   ],
-  "source_input_sha256": "16ebf5babdd0e87ebc3efc656ac0c34e1351c558c24a53d4e2fd490da2a4dbda",
-  "version": "0.1.0+a13.s16ebf5babdd0e87e",
+  "source_input_sha256": "c2825f5bbdca07a5f805f769ce5dfa11a1d9d187409f776d8b72753e732aa44a",
+  "version": "0.1.0+a13.sc2825f5bbdca07a5",
   "wheel_tag": "py3-none-any"
 }
