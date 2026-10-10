@@ -104,6 +104,24 @@ def run(source_root: Path, allow_pending: bool) -> None:
             fatal(f'{module}: volume mapping changed between Compose files')
         if set(base['services'])!=set(a['compose_services']) or set(override['services'])!=set(a['compose_services']):
             fatal(f'{module}: registry/Compose services differ')
+        # Public routes have exactly one canonical port-qualified magic name,
+        # plus a value interpolation: both Coolify parser paths must see it.
+        if module in {'admin-api', 'admin-ui'}:
+            public_port = '8000' if module == 'admin-api' else '8080'
+            service_key = f'briareus-{module}'
+            public_key = 'PUBLIC_API_URL' if module == 'admin-api' else 'PUBLIC_UI_URL'
+            magic_key = 'SERVICE_URL_' + service_key.upper().replace('-', '_') + '_' + public_port
+            public_env = override['services'][service_key]['environment']
+            if public_env.get(magic_key) != '/' or public_env.get(public_key) != '${' + magic_key + '}':
+                fatal(f'{module}: both canonical Coolify generated-domain discovery paths required')
+            exposed = base['services'][service_key].get('expose', [])
+            if public_port not in [str(x) for x in exposed]:
+                fatal(f'{module}: public domain port mismatch')
+            if module == 'admin-api':
+                if public_env.get('SERVICE_NAMESPACE') != '${SERVICE_NAMESPACE:?}':
+                    fatal('admin-api: namespace must be required explicit ENV')
+                if public_env.get('OTEL_SERVICE_NAME') != '${OTEL_SERVICE_NAME:-admin-api}':
+                    fatal('admin-api: OTEL_SERVICE_NAME must be editable with safe default')
         watches=watch_list(module)
         for path in watches:
             if path in {'deploy/README.md','deploy/SHA256SUMS','deploy/APPLICATIONS.json','deploy/watch_impact.py'} or path.startswith('docs/'):
