@@ -1,10 +1,25 @@
-# Release wheel is a single trusted input; deny all arbitrary source overlays.
+# Canonical full Briareus noneditable uv install; no private scratch/build artifacts.
 **
 !pyproject.toml
 !uv.lock
-!deploy/
-!deploy/install_wheel_release.py
-!deploy/gateway/
-!deploy/gateway/wheel-pin.json
-!deploy/wheel_artifacts/
-!deploy/wheel_artifacts/**
+!README.md
+!LICENSE
+!.python-version
+!services/
+!services/**
+!scripts/
+!scripts/**
+# Do not send credentials or local build artifacts even if nested under source.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/secrets/**
+**/__pycache__/**
+**/*.pyc
+**/.mypy_cache/**
+**/.ruff_cache/**
+**/.venv/**
+**/dist/**
+**/build/**

@@ -63,13 +63,10 @@ def run(source_root: Path, allow_pending: bool) -> None:
         fatal('duplicate Application display name')
     if {p.name for p in ROOT.iterdir() if p.is_dir() and p.name not in {'__pycache__', '.ruff_cache'}} != MODULES:
         fatal('wrong deploy module directories')
-    if registry['provisioning_status']!='source_only_packaging_v1_unpublished_artifact_delivery_blocked':
+    if registry['provisioning_status']!='source_only_uv_direct_live_provisioning_blocked':
         fatal('live Apply guard not present')
-    management=registry.get('management',{})
-    if management.get('operator_image_build_preparer')!='deploy/prepare_operator_image_build.py' or not (ROOT/'prepare_operator_image_build.py').is_file():
-        fatal('approved operator-run build context tool missing')
-    if management.get('wheel_artifact_delivery_verified') is not False:
-        fatal('Coolify artifact delivery cannot be asserted before real proof')
+    if registry.get('management',{}).get('build_strategy')!='coolify_git_webhook_uv_cached_deps_noneditable_project':
+        fatal('uv direct build source of truth is missing')
     docs=sorted(p.name for p in ROOT.glob('*.md'))
     if docs != ['README.md']:
         fatal(f'duplicate active deployment manuals: {docs}')
@@ -82,10 +79,6 @@ def run(source_root: Path, allow_pending: bool) -> None:
         fatal('owner DB manifest incomplete or not gated')
     if manifest.get('role_model') != 'separate_owner_scoped_runtime_and_migration_principals_required':
         fatal('runtime principal cannot own migrations in accepted D4 rollout')
-    release_manifest=json.loads((source_root/'services/common/release_provenance.json').read_text())
-    if release_manifest.get('schema')!='briareus-full-wheel-source-v1' or not release_manifest.get('source_input_sha256'):
-        fatal('Backend A13 release provenance absent or schema invalid')
-    release_pins=set()
     if manifest['legacy_database_do_not_migrate']!='briareus_dev':
         fatal('live historical DB may not be repurposed')
     if any(not v for v in manifest['immutable_guards'].values()):
@@ -146,57 +139,45 @@ def run(source_root: Path, allow_pending: bool) -> None:
         if f'deploy/{module}/Dockerfile' not in watches:
             fatal(f'{module}: Dockerfile changes not watched')
         if module!='admin-ui':
-            pin=ROOT/module/'wheel-pin.json'
-            if not pin.is_file() or a.get('wheel_pin_source')!=f'deploy/{module}/wheel-pin.json':
-                fatal(f'{module}: release-pin file not declared independently')
-            from install_wheel_release import parse_pin
-            obj=parse_pin(pin)
-            release_pins.add((obj['version'],obj['sha256'],obj.get('source_input_sha256')))
-            if obj['version']!=release_manifest.get('version') or obj.get('source_input_sha256')!=release_manifest.get('source_input_sha256'):
-                fatal(f'{module}: pinned wheel differs from accepted A13 source digest/version')
-            if not obj.get('source_tree','').startswith('PENDING_'):
-                fatal(f'{module}: unapproved published Git tree guessed')
-            if obj.get('release_status')!='review_only_not_publishable':
-                fatal(f'{module}: no independent reviewer-approved immutable artifact delivery yet')
-            if a.get('activation')!='wheel_review_only_no_proven_artifact_delivery_or_live_authorization':
-                fatal(f'{module}: release activity not held until wheel delivery accepted')
-            if set(watches)!={
-                f'deploy/{module}/Dockerfile',
-                f'deploy/{module}/Dockerfile.dockerignore',
-                f'deploy/{module}/docker-compose.yaml',
-                f'deploy/{module}/docker-compose.coolify.yaml',
-                f'deploy/{module}/wheel-pin.json',
-                'deploy/install_wheel_release.py',
-            }:
-                fatal(f'{module}: per-app watchers do not match local pin/install/Coolify inputs')
+            if (ROOT/module/'wheel-pin.json').exists() or a.get('wheel_pin_source'):
+                fatal(f'{module}: deprecated external wheel pin still active')
+            if a.get('activation')!='source_only_uv_direct_image_build_live_activation_blocked':
+                fatal(f'{module}: live activation guard removed')
             dockertext=docker.read_text()
-            if 'PYTHONPATH=' in dockertext or 'COPY services/' in dockertext or 'COPY scripts/' in dockertext:
-                fatal(f'{module}: forbidden source overlay in installed wheel runtime')
-            if 'uv sync ' not in dockertext or '--no-install-project' not in dockertext:
-                fatal(f'{module}: missing locked third-party dependency layer')
-            if 'deploy/install_wheel_release.py' not in dockertext or 'deploy/wheel_artifacts/' not in dockertext:
-                fatal(f'{module}: canonical pinned release installer or transport input missing')
-            if '--allow-review-artifact' in dockertext:
-                fatal(f'{module}: a review-only artifact may not be installed in a runnable image')
-            if 'wheel-pin.json' not in dockertext or '--python /app/.venv/bin/python' not in dockertext:
-                fatal(f'{module}: no actual installed Briareus wheel verification')
+            for forbidden in ('deploy/wheel_artifacts/', 'install_wheel_release.py',
+                              'PYTHONPATH=', 'SERVICE_VERSION='):
+                if forbidden in dockertext:
+                    fatal(f'{module}: obsolete wheel distribution/runtime shortcut: {forbidden}')
+            expected_deps='uv sync --frozen --no-dev --no-install-project'
+            if module=='web':
+                expected_deps='uv sync --frozen --no-dev --group web --no-install-project'
+            if expected_deps not in dockertext:
+                fatal(f'{module}: missing cached dependency-only build layer')
+            expected_project='uv sync --frozen --no-dev --no-editable'
+            if module=='web':
+                expected_project='uv sync --frozen --no-dev --group web --no-editable'
+            if expected_project not in dockertext:
+                fatal(f'{module}: Briareus not installed noneditably at image BUILD')
+            if dockertext.index(expected_deps)>dockertext.index('COPY services/') or dockertext.index(expected_project)<dockertext.index('COPY scripts/'):
+                fatal(f'{module}: dependency cache or actual project installation wrong order')
+            if 'CMD ' not in dockertext or 'uv sync ' in dockertext.split('CMD ')[-1]:
+                fatal(f'{module}: runtime should run service without uv sync')
+            expected={f'deploy/{module}/Dockerfile',f'deploy/{module}/Dockerfile.dockerignore',
+                      f'deploy/{module}/docker-compose.yaml',f'deploy/{module}/docker-compose.coolify.yaml',
+                      'pyproject.toml','uv.lock','README.md','LICENSE','.python-version','services/**','scripts/**'}
+            if set(watches)!=expected:
+                fatal(f'{module}: full source build has uncovered inputs/watches')
             ignore=(ROOT/module/'Dockerfile.dockerignore').read_text()
-            if '!deploy/wheel_artifacts/' not in ignore or '!deploy/install_wheel_release.py' not in ignore:
-                fatal(f'{module}: missing explicit artifact COPY BuildKit whitelist')
+            for needed in ('!pyproject.toml','!uv.lock','!README.md','!LICENSE','!.python-version',
+                           '!services/','!services/**','!scripts/','!scripts/**'):
+                if needed not in ignore:
+                    fatal(f'{module}: missing narrow Docker COPY input: {needed}')
             for src in docker_copies(docker):
-                if src.startswith(('services/','scripts/')):
-                    fatal(f'{module}: source COPY slipped past release pin')
-                if src.startswith('deploy/wheel_artifacts/'):
-                    # Publication/transport capability is NOT verified; source-only stage must
-                    # remain explicitly non-runnable rather than claiming image BUILD.
-                    if (ROOT/'wheel_artifacts').exists():
-                        fatal('unreviewed wheel artifact pasted into Git staging')
-                    continue
-                path=(ROOT/src.removeprefix('deploy/')) if src.startswith('deploy/') else source_root/src
-                if not path.exists():
-                    fatal(f'{module}: Docker COPY source missing: {src}')
-                if src.startswith('deploy/') and not watch_covered(src,watches):
-                    fatal(f'{module}: non-wheel COPY input not watched: {src}')
+                if src.startswith('deploy/'):
+                    fatal(f'{module}: obsolete deploy install artifact reached image')
+                path=source_root/src.rstrip('/')
+                if not path.exists() or not watch_covered(src,watches):
+                    fatal(f'{module}: actual Docker COPY input uncovered: {src}')
         else:
             for src in docker_copies(docker):
                 path=ROOT/src.removeprefix('deploy/') if src.startswith('deploy/') else source_root/src
@@ -259,15 +240,11 @@ def run(source_root: Path, allow_pending: bool) -> None:
             fatal('existing Data physical volume identity changed')
     if 'allow-owner' in (ROOT/'authorization/docker-compose.yaml').read_text():
         fatal('unapproved Auth runtime bypass')
-    from wheel_source_graph import app_pins, wheel_sources
-    sources=wheel_sources(source_root)
-    if len(sources)!=len(release_manifest['source_input_files']):
-        fatal('wheel source input set differs from accepted A13 release manifest')
-    if len(release_pins)!=1 or len(app_pins())!=12:
-        fatal('all 12 initial Python Apps must reference one A13 candidate')
-    print('PACKAGING_V1_SOURCE_STATIC_PASS; 14 Apps, 12 candidate pinned wheel consumers, 28 YAML; four owner DBs')
-    print('BUILD BLOCKED: immutable wheel transport to Git-backed Coolify build context NOT PROVEN; pins are review-only.')
-    print('No image BUILD, live PostgreSQL, C2, or Coolify mutation acceptance.')
+    if any(ROOT.glob('*/wheel-pin.json')) or (ROOT/'install_wheel_release.py').exists():
+        fatal('old external wheel release artifacts still active')
+    print('UV_DIRECT_SOURCE_STATIC_PASS; 14 Apps, 28 YAML, 12 first-party uv images, four owner DBs')
+    print('Dependencies cached before source COPY; local project installed non-editably at BUILD; no sync in service CMD.')
+    print('Actual Coolify image BUILD, new SQL role/DB/OS/C2 acceptance not established by STATIC.')
 
 
 def main() -> int:

@@ -13,14 +13,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd -u 1000 -m -d /home/svc svc
-# PACKAGING-V1: dependency layer only; Briareus installed ONLY from reviewed immutable wheel.
-COPY deploy/install_wheel_release.py /app/install_wheel_release.py
-COPY deploy/svc/wheel-pin.json /app/wheel-pin.json
-# BUILD BLOCKED on actual immutable wheel artifact delivery into this context.
-# No source overlay / ad hoc wheel build / network download / version fallback.
-COPY deploy/wheel_artifacts/ /app/wheel_artifacts/
-RUN python /app/install_wheel_release.py --pin /app/wheel-pin.json --wheel-directory /app/wheel_artifacts --python /app/.venv/bin/python \
-    && rm -rf /app/wheel_artifacts /app/install_wheel_release.py
+# Direct uv image build: dependency layer cached above; local Briareus distribution is
+# installed non-editably from the reviewed git tree, not an external wheelhouse.
+COPY README.md LICENSE .python-version ./
+COPY services/ ./services/
+COPY scripts/ ./scripts/
+RUN uv sync --frozen --no-dev --no-editable
 USER 1000:1000
 EXPOSE 8000
 CMD ["/bin/sh", "-ec", "echo BRIAREUS_SVC_UNIFIED_RUNTIME_PENDING >&2; exit 78"]
