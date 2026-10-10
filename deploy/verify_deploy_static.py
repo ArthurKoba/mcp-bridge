@@ -151,12 +151,12 @@ def run(source_root: Path, allow_pending: bool) -> None:
             expected_deps='uv sync --frozen --no-dev --no-install-project'
             if module=='web':
                 expected_deps='uv sync --frozen --no-dev --group web --no-install-project'
-            if expected_deps not in dockertext:
+            if f'RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared {expected_deps}' not in dockertext:
                 fatal(f'{module}: missing cached dependency-only build layer')
             expected_project='uv sync --frozen --no-dev --no-editable'
             if module=='web':
                 expected_project='uv sync --frozen --no-dev --group web --no-editable'
-            if expected_project not in dockertext:
+            if f'RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared {expected_project}' not in dockertext:
                 fatal(f'{module}: Briareus not installed noneditably at image BUILD')
             if dockertext.index(expected_deps)>dockertext.index('COPY services/') or dockertext.index(expected_project)<dockertext.index('COPY scripts/'):
                 fatal(f'{module}: dependency cache or actual project installation wrong order')
@@ -224,8 +224,8 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 fatal('Backend source does not install dedicated migration role support')
             if 'alembic_greenfield' in docker.read_text()+cool.read_text():
                 fatal(f'{module}: old global Alembic graph in deploy image')
-            # Accepted source migrations are inside the canonical reviewed wheel.
-            # There is no per-owner source COPY or migration watcher in module releases.
+            # Domain owner migrations ship inside the local uv-installed Hatch package.
+            # Shared services/scripts input is intentionally watched until a reviewed split.
             if 'alembic_greenfield' in docker.read_text()+cool.read_text():
                 fatal(f'{module}: old global Alembic graph remains reachable')
         elif module=='admin-api':
