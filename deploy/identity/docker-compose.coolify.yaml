@@ -29,8 +29,6 @@ services:
       POSTGRES_DB: "briareus_identity"
       POSTGRES_USER: "${POSTGRES_USER:?}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
-      MIGRATION_POSTGRES_USER: "${MIGRATION_POSTGRES_USER:?}"
-      MIGRATION_POSTGRES_PASSWORD: "${MIGRATION_POSTGRES_PASSWORD:?}"
 networks:
   briareus:
     external: true

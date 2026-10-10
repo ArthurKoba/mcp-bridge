@@ -20,7 +20,7 @@ def main() -> int:
     else:
         print('SOURCE-ONLY OWNER DATABASES — NOT PROVISIONED')
         for row in data['initial']:
-            print(f"{row['owner']}: database={row['database']} role={row['runtime_role']} runtime={row['role_env']},{row['secret_env']} DDL={row['migration_role']} ENV={row['migration_role_env']},{row['migration_secret_env']}")
+            print(f"{row['owner']}: database={row['database']} one_role={row['owner_role']} owner_env={row['role_env']},{row['secret_env']} own_ddl={row['owner_role_may_apply_own_schema_ddl']}")
         print('REQUIRES independent credentials/backup/role+DDL authority and explicit live-cutover approval')
     return 0
 
