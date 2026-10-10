@@ -234,6 +234,10 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 if not path.exists() or not watch_covered(src,watches):
                     fatal(f'{module}: UI COPY input missing/unwatched {src}')
         if module in OWNERS:
+            # A failed DB/Alembic/trust prerequisite must stop the owner
+            # process and stay stopped, not spin in an endless restart loop.
+            if base['services'][f'briareus-{module}'].get('restart') != 'no':
+                fatal(f'{module}: failed owner startup must not auto-restart')
             expected_apps={'identity':'identity.platform_runtime:app',
                            'authorization':'authorization.platform_runtime:app',
                            'platform':'projects.control_runtime:app',
