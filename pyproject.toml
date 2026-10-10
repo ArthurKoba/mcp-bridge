@@ -1,6 +1,6 @@
 [project]
 name = "briareus"
-version = "0.1.0+a13.s311def055ff51143"
+version = "0.1.0+a13.s16ebf5babdd0e87e"
 description = "Briareus project-scoped Authorization, Admin and isolated runtime services."
 readme = "README.md"
 requires-python = ">=3.13"

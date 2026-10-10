@@ -1,5 +1,5 @@
 5c08c09d83b7a14ec5725ae4a531bfbda5886ec8e17557de0dc78f5a54e85679  ./APPLICATIONS.json
-b54592f35eec3bf6f1c8af0d33fedc002699413e971fca4be88e3eaa4883659f  ./README.md
+7559b66ec2d2ede553d609ebfee63f7a8e23fd3a0e9875669f563c03115b6a62  ./README.md
 7fe04c06e5b5b10a893b5b1f2a5d9e4cb49dac9ee9e65fb4ee2a1066a3cdc79b  ./admin-api/Dockerfile
 e7dbf0c7ef9a7513f2bd836b59352efa750b0c3f9c9c1888c1259a6915967084  ./admin-api/Dockerfile.dockerignore
 0f042879d0c6555a866436f20e63ae368390525e8a687a0f8109ee05cbb88fff  ./admin-api/docker-compose.coolify.yaml

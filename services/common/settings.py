@@ -252,8 +252,8 @@ class ObservabilitySettings(ProcessSettings):
     """
 
     service_name: str = Field("", validation_alias="OTEL_SERVICE_NAME")
-    service_namespace: str = Field("briareus", validation_alias="OTEL_SERVICE_NAMESPACE")
-    environment: str = Field("development", validation_alias="OTEL_DEPLOYMENT_ENVIRONMENT_NAME")
+    service_namespace: str = Field(..., validation_alias="OTEL_SERVICE_NAMESPACE")
+    environment: str = Field(..., validation_alias="OTEL_DEPLOYMENT_ENVIRONMENT_NAME")
     endpoint: str = Field("", validation_alias="OTLP_ENDPOINT")
     bearer_token: SecretStr | None = Field(default=None, validation_alias="OTLP_BEARER_TOKEN")
     # Stable implementation limits, NOT another operator ENV surface.
