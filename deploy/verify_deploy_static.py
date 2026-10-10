@@ -170,7 +170,17 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 fatal(f'{module}: required ENV lacks scoped reference: {used-allowed_required}')
             for key,ref in bindings.items():
                 match=SHARED.fullmatch(ref)
-                if match is None or key!=match.group(2) or key not in cfg[match.group(1)+'_shared']:
+                # Only owner App inputs use canonical aliases for
+                # separately qualified Environment Shared credentials.
+                owner_key=(
+                    OWNERS[module][2]+'_'+key
+                    if module in OWNERS and key in {
+                        'POSTGRES_USER','POSTGRES_PASSWORD',
+                        'MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'
+                    } else key
+                )
+                if (match is None or match.group(2)!=owner_key
+                        or owner_key not in cfg[match.group(1)+'_shared']):
                     fatal(f'{module}: bad Shared binding {key}')
         if module=='data':
             if any((ROOT/module/n).exists() for n in ('Dockerfile','greenfield_schema.py')):
@@ -244,10 +254,14 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 fatal(f'{module}: OTel service_name mismatches real owner_runtime telemetry identity')
             if env['POSTGRES_DB']!=db or env['POSTGRES_HOST']!='briareus-postgres':
                 fatal(f'{module}: stale / shared god database target')
-            if env['POSTGRES_USER']!='${'+env_key+'_POSTGRES_USER:?}' or env['POSTGRES_PASSWORD']!='${'+env_key+'_POSTGRES_PASSWORD:?}':
-                fatal(f'{module}: owner DB not bound to required scoped principal')
-            if env.get('MIGRATION_POSTGRES_USER')!='${'+env_key+'_MIGRATION_POSTGRES_USER:?}' or env.get('MIGRATION_POSTGRES_PASSWORD')!='${'+env_key+'_MIGRATION_POSTGRES_PASSWORD:?}':
-                fatal(f'{module}: separate owner-scoped migration role is not required')
+            if env['POSTGRES_USER']!='${POSTGRES_USER:?}' or env['POSTGRES_PASSWORD']!='${POSTGRES_PASSWORD:?}':
+                fatal(f'{module}: owner App must use canonical POSTGRES_USER/PASSWORD inputs')
+            if env.get('MIGRATION_POSTGRES_USER')!='${MIGRATION_POSTGRES_USER:?}' or env.get('MIGRATION_POSTGRES_PASSWORD')!='${MIGRATION_POSTGRES_PASSWORD:?}':
+                fatal(f'{module}: owner App must require separate migration inputs')
+            for app_key in ('POSTGRES_USER','POSTGRES_PASSWORD','MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'):
+                ref='{{project.'+env_key+'_'+app_key+'}}'
+                if a['shared_variables'].get(app_key)!=ref:
+                    fatal(f'{module}: owner-specific role reference absent: {app_key}')
             base_env=base['services'][f'briareus-{module}']['environment']
             if base_env.get('MIGRATION_POSTGRES_USER')!=env['MIGRATION_POSTGRES_USER'] or base_env.get('MIGRATION_POSTGRES_PASSWORD')!=env['MIGRATION_POSTGRES_PASSWORD']:
                 fatal(f'{module}: migration role ENV absent from portable Compose')

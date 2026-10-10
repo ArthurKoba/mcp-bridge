@@ -161,9 +161,19 @@ def main() -> int:
         bindings=app.get("shared_variables",{})
         if not isinstance(bindings,dict):
             raise BootstrapError(f"{module}: shared_variables must be a mapping")
+        owner_scopes={'identity':'IDENTITY','authorization':'ACCESS',
+                      'platform':'CONTROL','resources':'CATALOG'}
+        owner_db_inputs={'POSTGRES_USER','POSTGRES_PASSWORD',
+                         'MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'}
         for key,ref in bindings.items():
             match=SHARED_REF.fullmatch(ref) if isinstance(ref,str) else None
-            if not match or key != match.group(2) or key not in allowed_scopes[match.group(1)]:
+            shared_name=(
+                owner_scopes[module]+'_'+key
+                if module in owner_scopes and key in owner_db_inputs
+                else key
+            )
+            if (not match or shared_name!=match.group(2)
+                    or shared_name not in allowed_scopes[match.group(1)]):
                 raise BootstrapError(f"{module}: unapproved Shared variable binding for {key}")
             if key not in declared:
                 raise BootstrapError(f"{module}: {key} is not a Compose interpolation input")
@@ -177,7 +187,10 @@ def main() -> int:
         print(f"  {app['name']}: base={app['base_directory']} required_inputs={','.join(required_by_app[app['name']]) or '-'}")
     all_required=set().union(*required_by_app.values())
     classified=set().union(*(set(x) for x in bindings_by_app.values()))
-    unknown_required=sorted(all_required-classified)
+    # Service identity is selected by each operator-managed Python Application.
+    # It is intentionally not a Team/Project/Environment Shared value.
+    permitted_local={'OTEL_SERVICE_NAME'}
+    unknown_required=sorted(all_required-classified-permitted_local)
     if unknown_required:
         raise BootstrapError(
             "unclassified required variables in Compose: " + ", ".join(unknown_required)
