@@ -34,8 +34,8 @@ class BrowserTelemetryAdmission:
         # Source hold: these original APIs join Identity, Project and quota
         # counters through the rejected Authorization-global SQL Session.
         # They must never become an alternative public telemetry route.
-        raise RuntimeError("global browser admission retired; use isolated owner ingest")
         self.app = app
+        raise RuntimeError("global browser admission retired; use isolated owner ingest")
 
     async def _current_opt_in(self, tx: AsyncSession, caller: CallerPrincipal) -> UserRow:
         await self.app.current_user(tx, caller, lock=True)

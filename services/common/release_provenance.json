@@ -1,6 +1,6 @@
 {
-  "base_git_commit": "fc615de900b7343272615c4e9cf4ae1c755790c5",
-  "base_git_tree": "e75f13ed4443e44818b6f9a799117734fc0a45d7",
+  "base_git_commit": "e111cd6bea789dff7026f8954a67e18eaac073ce",
+  "base_git_tree": "d7d15bdf1765f8bf369e9bc5382c9e287dba103c",
   "name": "briareus",
   "owner_alembic": {
     "access": "access_0001",
@@ -500,7 +500,7 @@
     {
       "bytes": 6969,
       "path": "services/authorization/_browser_telemetry.py",
-      "sha256": "663722840fc98ca8b6d0c78041f5a2f6dfc61d1360aaba123f4206ddd62b254a"
+      "sha256": "e5949bb1a7dd5f7b9bea56933837eb04cfc88be17ba0708b5f245b979e54e5d9"
     },
     {
       "bytes": 1325,
@@ -703,9 +703,9 @@
       "sha256": "81ff29ad2a168ba70a18c711e8cc8fcaa9037c5fe98a89037e3bc02043a55ef4"
     },
     {
-      "bytes": 9642,
+      "bytes": 4911,
       "path": "services/authorization/platform_composition.py",
-      "sha256": "f7625145aa1c2dfb3a069c6de9af0548ae82cfff3522fd72f0fa0a57400b547d"
+      "sha256": "d5f86c6deaab3d36c5a101dbd50bbcc3a61a52440a411992c97d30d03a7cec2a"
     },
     {
       "bytes": 267,
@@ -1018,9 +1018,9 @@
       "sha256": "50638aeb80c45b47f67a5aaf0988f47797fd8bb7a9f03fed23f8229ebc57346c"
     },
     {
-      "bytes": 29431,
+      "bytes": 29444,
       "path": "services/common/settings.py",
-      "sha256": "776dbfc4999f1a871b3552c8241767066e450c6ed1b3408b442e9d4ea95eb13c"
+      "sha256": "7cd95b91ef59a7066239f469cdc58eab2f878a7f58567801738295c002affc00"
     },
     {
       "bytes": 6097,
@@ -1993,7 +1993,7 @@
       "sha256": "ffed8d3806289c75e707b00e0882ce6ec36194885506f98e278404069bee1df3"
     }
   ],
-  "source_input_sha256": "d602acaa4554edc5107a871ae070f84a55856ecf18706b833ea12b34c7ba3ceb",
-  "version": "0.1.0+a13.sd602acaa4554edc5",
+  "source_input_sha256": "afcfb154a1f4f29833ab9581273bb5458bd949303301d48a19887d9e1811163d",
+  "version": "0.1.0+a13.safcfb154a1f4f298",
   "wheel_tag": "py3-none-any"
 }

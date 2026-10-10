@@ -34,7 +34,7 @@ REPOSITORY_URL = "https://github.com/ArthurKoba/briareus.git"
 RESOURCE_ID = re.compile(r"[a-z0-9]{24}\Z")
 REQUIRED = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\:\?\}")
 INTERPOLATED = re.compile(r"\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?(?::\?)?\}")
-SHARED_REF = re.compile(r"\{\{(team|environment)\.([A-Z][A-Z0-9_]*)\}\}\Z")
+SHARED_REF = re.compile(r"\{\{(team|project|environment)\.([A-Z][A-Z0-9_]*)\}\}\Z")
 GENERATED_DOMAIN = re.compile(r"\bSERVICE_(?:URL|FQDN)_[A-Z0-9_]+\b")
 
 
@@ -149,6 +149,7 @@ def main() -> int:
     if not isinstance(config, dict):
         raise BootstrapError("APPLICATIONS.json missing configuration_contract")
     allowed_scopes={"team":frozenset(config.get("team_shared", [])),
+                    "project":frozenset(config.get("project_shared", [])),
                     "environment":frozenset(config.get("environment_shared", []))}
     if config.get("read_secret_values") is not False:
         raise BootstrapError("secret read policy must remain disabled")

@@ -31,8 +31,8 @@ jobs:
           version: "0.8.22"
           enable-cache: true
       - run: uv sync --frozen --dev --no-install-project
-      - run: .venv/bin/ruff check services scripts/provision_authorization_database.py
-      - run: .venv/bin/mypy services/authorization services/bridge services/common services/admin-api/src scripts/provision_authorization_database.py
+      - run: .venv/bin/ruff check services scripts/release_candidate.py
+      - run: .venv/bin/mypy services/authorization services/bridge services/common services/admin-api/src scripts/release_candidate.py
 
   images:
     if: github.event_name == 'workflow_dispatch' && inputs.build_images == true

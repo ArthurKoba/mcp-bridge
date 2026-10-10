@@ -252,8 +252,8 @@ class ObservabilitySettings(ProcessSettings):
     """
 
     service_name: str = Field("", validation_alias="OTEL_SERVICE_NAME")
-    service_namespace: str = Field("briareus", validation_alias="SERVICE_NAMESPACE")
-    environment: str = Field("development", validation_alias="DEPLOYMENT_ENVIRONMENT")
+    service_namespace: str = Field(..., validation_alias="OTEL_SERVICE_NAMESPACE")
+    environment: str = Field(..., validation_alias="OTEL_DEPLOYMENT_ENVIRONMENT_NAME")
     endpoint: str = Field("", validation_alias="OTLP_ENDPOINT")
     bearer_token: SecretStr | None = Field(default=None, validation_alias="OTLP_BEARER_TOKEN")
     # Stable implementation limits, NOT another operator ENV surface.
@@ -272,14 +272,14 @@ class ObservabilitySettings(ProcessSettings):
     @classmethod
     def _namespace(cls, value: str) -> str:
         if not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", value):
-            raise ValueError("SERVICE_NAMESPACE must be a valid product namespace")
+            raise ValueError("OTEL_SERVICE_NAMESPACE must be a valid product namespace")
         return value
 
     @field_validator("environment")
     @classmethod
     def _environment(cls, value: str) -> str:
         if value not in {"development", "staging", "production"}:
-            raise ValueError("DEPLOYMENT_ENVIRONMENT must be a known release environment")
+            raise ValueError("OTEL_DEPLOYMENT_ENVIRONMENT_NAME must be a known release environment")
         return value
 
     @field_validator("endpoint")
