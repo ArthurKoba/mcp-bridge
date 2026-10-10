@@ -33,7 +33,7 @@
         "briareus-identity"
       ],
       "watch_paths_source": "deploy/identity/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/identity/Dockerfile",
       "module": "identity",
       "shared_variables": {
@@ -46,8 +46,7 @@
         "IDENTITY_POSTGRES_PASSWORD": "{{environment.IDENTITY_POSTGRES_PASSWORD}}",
         "IDENTITY_MIGRATION_POSTGRES_USER": "{{environment.IDENTITY_MIGRATION_POSTGRES_USER}}",
         "IDENTITY_MIGRATION_POSTGRES_PASSWORD": "{{environment.IDENTITY_MIGRATION_POSTGRES_PASSWORD}}"
-      },
-      "wheel_pin_source": "deploy/identity/wheel-pin.json"
+      }
     },
     {
       "name": "Platform Control",
@@ -57,7 +56,7 @@
         "briareus-platform"
       ],
       "watch_paths_source": "deploy/platform/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/platform/Dockerfile",
       "module": "platform",
       "shared_variables": {
@@ -70,8 +69,7 @@
         "CONTROL_POSTGRES_PASSWORD": "{{environment.CONTROL_POSTGRES_PASSWORD}}",
         "CONTROL_MIGRATION_POSTGRES_USER": "{{environment.CONTROL_MIGRATION_POSTGRES_USER}}",
         "CONTROL_MIGRATION_POSTGRES_PASSWORD": "{{environment.CONTROL_MIGRATION_POSTGRES_PASSWORD}}"
-      },
-      "wheel_pin_source": "deploy/platform/wheel-pin.json"
+      }
     },
     {
       "name": "Resource Catalog",
@@ -81,7 +79,7 @@
         "briareus-resources"
       ],
       "watch_paths_source": "deploy/resources/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/resources/Dockerfile",
       "module": "resources",
       "shared_variables": {
@@ -94,8 +92,7 @@
         "CATALOG_POSTGRES_PASSWORD": "{{environment.CATALOG_POSTGRES_PASSWORD}}",
         "CATALOG_MIGRATION_POSTGRES_USER": "{{environment.CATALOG_MIGRATION_POSTGRES_USER}}",
         "CATALOG_MIGRATION_POSTGRES_PASSWORD": "{{environment.CATALOG_MIGRATION_POSTGRES_PASSWORD}}"
-      },
-      "wheel_pin_source": "deploy/resources/wheel-pin.json"
+      }
     },
     {
       "name": "Authorization",
@@ -105,7 +102,7 @@
         "briareus-authorization"
       ],
       "watch_paths_source": "deploy/authorization/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/authorization/Dockerfile",
       "module": "authorization",
       "shared_variables": {
@@ -118,8 +115,7 @@
         "ACCESS_POSTGRES_PASSWORD": "{{environment.ACCESS_POSTGRES_PASSWORD}}",
         "ACCESS_MIGRATION_POSTGRES_USER": "{{environment.ACCESS_MIGRATION_POSTGRES_USER}}",
         "ACCESS_MIGRATION_POSTGRES_PASSWORD": "{{environment.ACCESS_MIGRATION_POSTGRES_PASSWORD}}"
-      },
-      "wheel_pin_source": "deploy/authorization/wheel-pin.json"
+      }
     },
     {
       "name": "Admin API",
@@ -129,7 +125,7 @@
         "briareus-admin-api"
       ],
       "watch_paths_source": "deploy/admin-api/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/admin-api/Dockerfile",
       "module": "admin-api",
       "shared_variables": {
@@ -138,8 +134,7 @@
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
         "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
         "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}"
-      },
-      "wheel_pin_source": "deploy/admin-api/wheel-pin.json"
+      }
     },
     {
       "name": "Admin UI",
@@ -164,11 +159,10 @@
         "briareus-gateway"
       ],
       "watch_paths_source": "deploy/gateway/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/gateway/Dockerfile",
       "module": "gateway",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/gateway/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "Files",
@@ -178,11 +172,10 @@
         "briareus-files"
       ],
       "watch_paths_source": "deploy/files/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/files/Dockerfile",
       "module": "files",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/files/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "Terminal",
@@ -192,11 +185,10 @@
         "briareus-terminal"
       ],
       "watch_paths_source": "deploy/terminal/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/terminal/Dockerfile",
       "module": "terminal",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/terminal/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "Web",
@@ -206,11 +198,10 @@
         "briareus-web"
       ],
       "watch_paths_source": "deploy/web/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/web/Dockerfile",
       "module": "web",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/web/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "SVC",
@@ -220,11 +211,10 @@
         "briareus-svc"
       ],
       "watch_paths_source": "deploy/svc/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/svc/Dockerfile",
       "module": "svc",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/svc/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "Infrastructure",
@@ -234,11 +224,10 @@
         "briareus-infrastructure"
       ],
       "watch_paths_source": "deploy/infrastructure/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/infrastructure/Dockerfile",
       "module": "infrastructure",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/infrastructure/wheel-pin.json"
+      "shared_variables": {}
     },
     {
       "name": "Reverse",
@@ -248,14 +237,13 @@
         "briareus-reverse"
       ],
       "watch_paths_source": "deploy/reverse/docker-compose.coolify.yaml#x-watch-path-coolify",
-      "activation": "wheel_review_only_no_proven_artifact_delivery_or_live_authorization",
+      "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/reverse/Dockerfile",
       "module": "reverse",
-      "shared_variables": {},
-      "wheel_pin_source": "deploy/reverse/wheel-pin.json"
+      "shared_variables": {}
     }
   ],
-  "provisioning_status": "source_only_packaging_v1_unpublished_artifact_delivery_blocked",
+  "provisioning_status": "source_only_uv_direct_live_provisioning_blocked",
   "layout": "deploy/<module>",
   "management": {
     "bootstrap": "deploy/bootstrap_coolify.py",
@@ -264,12 +252,7 @@
     "network": "briareus-net",
     "auto_deploy_during_bootstrap": false,
     "deploy_during_bootstrap": false,
-    "wheel_source_graph": "deploy/wheel_source_graph.py",
-    "immutable_wheel_installer": "deploy/install_wheel_release.py",
-    "wheel_artifact_delivery_verified": false,
-    "wheel_release_provenance_status": "review_only_source_tree_pending",
-    "operator_image_build_preparer": "deploy/prepare_operator_image_build.py",
-    "operator_build_manual": true
+    "build_strategy": "coolify_git_webhook_uv_cached_deps_noneditable_project"
   },
   "configuration_contract": {
     "team_shared": [

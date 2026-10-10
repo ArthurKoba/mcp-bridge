@@ -3,8 +3,13 @@ x-watch-path-coolify:
   - "deploy/identity/Dockerfile.dockerignore"
   - "deploy/identity/docker-compose.yaml"
   - "deploy/identity/docker-compose.coolify.yaml"
-  - "deploy/identity/wheel-pin.json"
-  - "deploy/install_wheel_release.py"
+  - "pyproject.toml"
+  - "uv.lock"
+  - "README.md"
+  - "LICENSE"
+  - ".python-version"
+  - "services/**"
+  - "scripts/**"
 
 # Coolify parses literals and Required ENV before resolving Shared references.
 services:

@@ -3,8 +3,13 @@ x-watch-path-coolify:
   - "deploy/svc/docker-compose.yaml"
   - "deploy/svc/docker-compose.coolify.yaml"
   - "deploy/svc/Dockerfile.dockerignore"
-  - "deploy/svc/wheel-pin.json"
-  - "deploy/install_wheel_release.py"
+  - "pyproject.toml"
+  - "uv.lock"
+  - "README.md"
+  - "LICENSE"
+  - ".python-version"
+  - "services/**"
+  - "scripts/**"
 
 services:
   briareus-svc:

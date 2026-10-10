@@ -107,16 +107,18 @@ def check_coverage(source_root: Path, allow_pending: bool) -> list[str]:
         raise ImpactError('documentation change triggers unexpected release')
     if impact['admin-web-app/src/main.ts'] != ['admin-ui']:
         raise ImpactError(f"Admin UI source impact incorrect: {impact['admin-web-app/src/main.ts']}")
-    if impact['scripts/alembic_greenfield/env.py']:
-        raise ImpactError('retired global migrator must not rebuild any new owner image')
-    # PACKAGING-V1: owner source edits rebuild ONE canonical wheel; they do
-    # not silently rebuild any per-App image until its own immutable pin changes.
-    for owner,module in [('identity','identity'),('access','authorization'),('platform','platform'),('resources','resources')]:
+    # Retired Alembic is absent from published source; generic scripts/**
+    # conservatively covers real build inputs but cannot resurrect this job.
+    if (source_root/'scripts/alembic_greenfield/env.py').exists():
+        raise ImpactError('retired global migrator unexpectedly exists in source tree')
+    # The current full Hatch project is installed into each Python image, so
+    # its source touches every Python consumer while Data/UI remain separate.
+    python_apps={a['module'] for a in registry['applications'] if a['module'] not in {'data','admin-ui'}}
+    for owner in ('identity','access','platform','resources'):
         source=f'scripts/alembic_owners/{owner}/env.py'
-        pinned=f'deploy/{module}/wheel-pin.json'
-        derived=generated_impact([source,pinned])
-        if derived[source] or derived[pinned]!=[module]:
-            raise ImpactError(f'{owner}: wheel producer/source vs explicit consumer pin release confused')
+        derived=generated_impact([source])
+        if set(derived[source])!=python_apps:
+            raise ImpactError(f'{owner}: shared Hatch source not watched by all Python consumers')
     return missing
 
 
