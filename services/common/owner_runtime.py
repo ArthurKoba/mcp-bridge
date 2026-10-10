@@ -20,7 +20,6 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from starlette.responses import Response
 
-from common.owner_migration_roles import OwnerMigrationCredentials, owner_migrator
 from common.owner_migrations import migrate_owner, verify_owner
 from common.platform_db import OwnerDatabaseSettings, OwnerName, PlatformDatabase
 from common.platform_telemetry import BriareusHttpTelemetry
@@ -87,20 +86,11 @@ def create_owner_app(
             telemetry = BriareusHttpTelemetry("authorization" if owner == "access" else owner)
             telemetry.started()
             current = current.model_copy(update={"state": "migrating"})
-            # Prefer separate per-owner schema DDL role when D4 configures it.
-            # The privileged engine is never retained for business requests.
-            migrator_settings = owner_migrator(local, OwnerMigrationCredentials())
-            if migrator_settings is not None:
-                migrator_db = PlatformDatabase(migrator_settings)
-                try:
-                    await migrate_owner(migrator_db, migrator_settings)
-                finally:
-                    await migrator_db.close()
-                result = await verify_owner(database, local)
-            else:
-                # Source-staged MVP fallback: current role MUST be scoped to
-                # exactly this owner DB. D4 owns privilege/backup acceptance.
-                result = await migrate_owner(database, local)
+            # One owner-scoped PostgreSQL role applies only this owner's
+            # reviewed Alembic revisions during the normal trusted startup.
+            # PostgreSQL provisioning must first create its logical DB/role.
+            result = await migrate_owner(database, local)
+            await verify_owner(database, local)
             current = current.model_copy(
                 update={
                     "state": "security_pending",

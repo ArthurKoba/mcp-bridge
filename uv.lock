@@ -129,7 +129,7 @@ wheels = [
 
 [[package]]
 name = "briareus"
-version = "0.1.0+a13.safcfb154a1f4f298"
+version = "0.1.0+a13.s51c96f283605bd2b"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

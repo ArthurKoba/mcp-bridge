@@ -77,7 +77,7 @@ def run(source_root: Path, allow_pending: bool) -> None:
     rows={x['module']:x for x in manifest['initial']}
     if set(rows)!=set(OWNERS) or manifest['provisioning_status']!='source_only_owner_approval_required':
         fatal('owner DB manifest incomplete or not gated')
-    if manifest.get('role_model') != 'separate_owner_scoped_runtime_and_migration_principals_required':
+    if manifest.get('role_model') != 'single_owner_scoped_principal_runs_alembic_at_startup':
         fatal('runtime principal cannot own migrations in accepted D4 rollout')
     if manifest['legacy_database_do_not_migrate']!='briareus_dev':
         fatal('live historical DB may not be repurposed')
@@ -174,10 +174,7 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 # separately qualified Environment Shared credentials.
                 owner_key=(
                     OWNERS[module][2]+'_'+key
-                    if module in OWNERS and key in {
-                        'POSTGRES_USER','POSTGRES_PASSWORD',
-                        'MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'
-                    } else key
+                    if module in OWNERS and key in {'POSTGRES_USER','POSTGRES_PASSWORD'} else key
                 )
                 if (match is None or match.group(2)!=owner_key
                         or owner_key not in cfg[match.group(1)+'_shared']):
@@ -256,28 +253,30 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 fatal(f'{module}: stale / shared god database target')
             if env['POSTGRES_USER']!='${POSTGRES_USER:?}' or env['POSTGRES_PASSWORD']!='${POSTGRES_PASSWORD:?}':
                 fatal(f'{module}: owner App must use canonical POSTGRES_USER/PASSWORD inputs')
-            if env.get('MIGRATION_POSTGRES_USER')!='${MIGRATION_POSTGRES_USER:?}' or env.get('MIGRATION_POSTGRES_PASSWORD')!='${MIGRATION_POSTGRES_PASSWORD:?}':
-                fatal(f'{module}: owner App must require separate migration inputs')
-            for app_key in ('POSTGRES_USER','POSTGRES_PASSWORD','MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'):
+            if any(k.startswith('MIGRATION_POSTGRES_') for k in env):
+                fatal(f'{module}: second DB migration credential contract returned')
+            for app_key in ('POSTGRES_USER','POSTGRES_PASSWORD'):
                 ref='{{project.'+env_key+'_'+app_key+'}}'
                 if a['shared_variables'].get(app_key)!=ref:
                     fatal(f'{module}: owner-specific role reference absent: {app_key}')
-            base_env=base['services'][f'briareus-{module}']['environment']
-            if base_env.get('MIGRATION_POSTGRES_USER')!=env['MIGRATION_POSTGRES_USER'] or base_env.get('MIGRATION_POSTGRES_PASSWORD')!=env['MIGRATION_POSTGRES_PASSWORD']:
-                fatal(f'{module}: migration role ENV absent from portable Compose')
-            if record.get('migration_role_env')!=env_key+'_MIGRATION_POSTGRES_USER' or record.get('migration_secret_env')!=env_key+'_MIGRATION_POSTGRES_PASSWORD':
-                fatal(f'{module}: DB manifest migration keys differ')
-            if record.get('runtime_ddl_permitted') is not False or record.get('migration_role_ddl_only_own_db') is not True:
-                fatal(f'{module}: migration role isolation invariant missing')
-            if record.get('runtime_role')!=f'briareus_{owner}_runtime' or record.get('migration_role')!=f'briareus_{owner}_migrator':
-                fatal(f'{module}: runtime/migration role identities not owner-specific')
-            for flag in ('runtime_role_ddl_allowed','migration_role_superuser_allowed',
-                         'migration_role_createdb_allowed','migration_role_createrole_allowed',
-                         'migration_role_cross_database_grants_allowed'):
+            if any(k.startswith('MIGRATION_POSTGRES_') for k in a['shared_variables']):
+                fatal(f'{module}: legacy migration Shared variables returned')
+            if record.get('owner_role')!=f'briareus_{owner}_owner':
+                fatal(f'{module}: one owner-specific role must own only its database')
+            if record.get('owner_role_may_apply_own_schema_ddl') is not True:
+                fatal(f'{module}: owner cannot apply its own Alembic revisions')
+            for flag in ('owner_role_superuser_allowed','owner_role_createdb_allowed',
+                         'owner_role_createrole_allowed',
+                         'owner_role_cross_database_grants_allowed'):
                 if record.get(flag) is not False:
-                    fatal(f'{module}: unsafe database role grant requested: {flag}')
-            if 'owner_migration_roles.py' not in (source_root/'services/common/owner_runtime.py').read_text() and 'from common.owner_migration_roles import' not in (source_root/'services/common/owner_runtime.py').read_text():
-                fatal('Backend source does not install dedicated migration role support')
+                    fatal(f'{module}: unsafe owner role privilege: {flag}')
+            if (source_root/'services/common/owner_migration_roles.py').exists():
+                fatal('obsolete separate migrator module returned')
+            runtime_source=(source_root/'services/common/owner_runtime.py').read_text()
+            if 'result = await migrate_owner(database, local)' not in runtime_source:
+                fatal('normal owner startup no longer runs own Alembic revisions')
+            if 'await verify_owner(database, local)' not in runtime_source:
+                fatal('independent read-only verification after migration missing')
             if 'alembic_greenfield' in docker.read_text()+cool.read_text():
                 fatal(f'{module}: old global Alembic graph in deploy image')
             # Domain owner migrations ship inside the local uv-installed Hatch package.

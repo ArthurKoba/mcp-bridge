@@ -163,8 +163,7 @@ def main() -> int:
             raise BootstrapError(f"{module}: shared_variables must be a mapping")
         owner_scopes={'identity':'IDENTITY','authorization':'ACCESS',
                       'platform':'CONTROL','resources':'CATALOG'}
-        owner_db_inputs={'POSTGRES_USER','POSTGRES_PASSWORD',
-                         'MIGRATION_POSTGRES_USER','MIGRATION_POSTGRES_PASSWORD'}
+        owner_db_inputs={'POSTGRES_USER','POSTGRES_PASSWORD'}
         for key,ref in bindings.items():
             match=SHARED_REF.fullmatch(ref) if isinstance(ref,str) else None
             shared_name=(
