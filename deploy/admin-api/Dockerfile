@@ -8,14 +8,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-install-project
 RUN useradd -u 1000 -m -d /home/platform platform
 # Direct uv image build: dependency layer cached above; local Briareus distribution is
 # installed non-editably from the reviewed git tree, not an external wheelhouse.
 COPY README.md LICENSE .python-version ./
 COPY services/ ./services/
 COPY scripts/ ./scripts/
-RUN uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable
 USER 1000:1000
 EXPOSE 8000
 CMD ["/app/.venv/bin/python", "-m", "uvicorn", "platform_runtime:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

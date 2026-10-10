@@ -88,7 +88,7 @@ def check_coverage(source_root: Path, allow_pending: bool) -> list[str]:
             if pattern.endswith('/**'):
                 root = source_root / pattern[:-3]
                 if not root.is_dir():
-                    # Only full wheel producer watches source; App watches stay pin-local.
+                    # Direct uv image build uses full shared Hatch source; no pin-local exception.
                     if allow_pending and pattern.startswith('scripts/alembic_owners/'):
                         missing.append(f'{module}: {pattern} (A11 NOT FAN-IN)')
                         continue
@@ -113,6 +113,8 @@ def check_coverage(source_root: Path, allow_pending: bool) -> list[str]:
         raise ImpactError('retired global migrator unexpectedly exists in source tree')
     # The current full Hatch project is installed into each Python image, so
     # its source touches every Python consumer while Data/UI remain separate.
+    # This correctness tradeoff prevents independent Python-only rebuilds until
+    # package/import/build graphs are split and independently reviewed.
     python_apps={a['module'] for a in registry['applications'] if a['module'] not in {'data','admin-ui'}}
     for owner in ('identity','access','platform','resources'):
         source=f'scripts/alembic_owners/{owner}/env.py'

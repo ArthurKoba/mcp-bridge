@@ -18,7 +18,7 @@ RUN apt-get update \
     && locale-gen \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --group web --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --group web --no-install-project
 ENV ASGI_APP=modules.web.runtime:app \
     BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     BROWSER_DEVTOOLS_MCP_SCRIPT_PATH=/opt/chrome-devtools-mcp/lib/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js \
@@ -36,7 +36,7 @@ RUN useradd -u 1000 -m -d /home/bridge bridge \
 COPY README.md LICENSE .python-version ./
 COPY services/ ./services/
 COPY scripts/ ./scripts/
-RUN uv sync --frozen --no-dev --group web --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --group web --no-editable
 USER 1000:1000
 EXPOSE 8000
 CMD ["/app/.venv/bin/python", "-m", "common.asgi"]
