@@ -289,24 +289,37 @@ Idle TTL и hard TTL **различны**. Активность продлева
 
 ## 6. Сеть, публичные MCP-адреса и межмодульные контракты
 
-### 6.1 Поддомены
+### 6.1 Один публичный origin и иерархия семейств MCP (решение владельца 2026-10-11)
 
-Целевая модель — отдельный четвёртый уровень домена с маршрутом /mcp, все MCP-входы через **один стабильный Gateway**, даже если Coolify proxy направляет их на один порт.
+**Уточнённое целевое решение:** не выделять новый поддомен для каждого MCP-модуля и не оставлять все endpoint'ы в корне. У публичной Briareus-платформы один origin и одно пространство маршрутов; отдельные модули сгруппированы по семействам. Канонический шаблон адреса:
 
-| Domain | Целевой endpoint |
-| --- | --- |
-| Web | https://web.mcp.koba-nexus.ru/mcp |
-| Terminal | https://terminal.mcp.koba-nexus.ru/mcp |
-| Files | https://files.mcp.koba-nexus.ru/mcp |
-| SVC | https://svc.mcp.koba-nexus.ru/mcp |
-| Infrastructure | https://infrastructure.mcp.koba-nexus.ru/mcp |
-| Reverse | https://reverse.mcp.koba-nexus.ru/mcp |
+```text
+https://briareus.koba-nexus.ru/<family>/<module>/mcp
+```
 
-Это **предлагаемые стабильные имена**, не доказательство готовности DNS/TLS/маршрутов. Authorization issuer остаётся отдельным, одним для платформы. У каждого MCP surface собственная защищённая OAuth resource audience. Проверку FastMCP discovery/metadata и RFC resource-поведения выполняем на реальных клиентах.
+Для семейства инструментов принято имя **`hands`**. Публичное имя модуля **`file`** (единственное число) не требует переименования внутреннего Files-сервиса.
 
-**Старые MCP routes/aliases не сохраняем:** `/github/mcp`, `/gitlab/mcp`, `/analysis/mcp`, `/observability/mcp` не требуют переноса или совместимости. Новые доменные endpoints создаются сразу по целевой модели.
+| Семейство / модуль | Целевой публичный MCP path | Независимый runtime / назначение |
+| --- | --- | --- |
+| Hands / File | `/hands/file/mcp` | Files |
+| Hands / Web | `/hands/web/mcp` | Web |
+| Hands / Terminal | `/hands/terminal/mcp` | Terminal |
+| Hands / Analysis | `/hands/analysis/mcp` | Analysis/Reverse, после определения принятой внутренней границы |
+| Hands / SVC | `/hands/svc/mcp` | SVC |
+| Hands / Infrastructure | `/hands/infrastructure/mcp` | Infrastructure |
+| Hands / Reverse | `/hands/reverse/mcp` | Reverse, если публикуется отдельно от Analysis |
 
-У каждого публичного направления — название и единообразная собственная SVG-иконка для отображения в MCP-клиентах; изображения/названия не влияют на authority ресурса.
+`/<family>/<module>/mcp` — **общий формат**, а не обязательство заранее создавать все возможные модули или семейства. Следующие семейства добавляются без изменения существующего пути `hands`. Не вводить обязательный общий `/hands/mcp`, псевдосервис для каталогов или по дополнительному публичному домену на каждого провайдера. При росте набора модулей расширяется таблица маршрутов Gateway, а не перечень публичных доменов.
+
+**Разделение маршрутов того же публичного origin:** `/` — пользовательская Panel; `/api/*` — её типизированный HTTP API; OAuth issuer/login/token и `/.well-known/*` имеют отдельные зарезервированные пути по принятому стандартному контракту Authorization; `/<family>/<module>/mcp` — MCP. Приоритет специфичных API/OAuth/MCP-маршрутов над SPA fallback обязателен. Конкретные пути OAuth issuer/discovery утверждаются и проверяются вместе с OAuth implementation; нельзя придумать нестандартный fallback, нарушающий клиентов.
+
+**Gateway** — один публичный вход и тонкий MCP reverse-proxy/маршрутизатор. Он сопоставляет проверенный внешний path с конкретным внутренним runtime по Docker DNS и его действующему MCP endpoint (например, внешний `/hands/file/mcp` → внутренний Files `/mcp`, когда такой ingress принят). Не содержит бизнес-логики Files/Web/Terminal и не становится владельцем данных или секретов. Он отвечает также за обязательные проверки identity, audience/resource, Project и AgentSession/grant перед проксированием; HTTP/path forwarding и MCP discovery должны сохранять клиенту корректный внешний URL. Сбой одного provider не должен останавливать остальных.
+
+**Authorization и безопасность:** единый публичный origin не объединяет Authorization, Identity, Gateway и провайдеров в один процесс/БД. Для каждого публичного MCP path должна быть собственная корректная resource identifier/audience и working OAuth protected-resource metadata/discovery; issuer/token flow обслуживает Authorization через утверждённый маршрут. Совпадение origin не разрешает обхода отдельной проверки полномочий. Переход с отдельного issuer host на общий origin требует принятого issuer/redirect/JWKS-контракта, а не одной переписи URL.
+
+**Миграционный статус:** это новое TARGET-SOURCE-решение о публичной адресации вместо прежней модели `web.mcp.*`, `files.mcp.*` и плоских `/files/mcp` и т. п. Старые legacy aliases не нужны для greenfield Briareus, но существующие проверенные Admin UI/API домены сохраняются до работоспособного Gateway/Panel/OAuth cutover. Сейчас Gateway ещё fail-closed, маршруты не активированы; этот раздел **не подтверждает наличие DNS, TLS, действующего reverse-proxy, авторизации или клиентской приёмки**. Git/Compose/Coolify/запущенные ресурсы менять отдельно и только с собственными gate.
+
+У каждого публичного направления остаются название и единообразная SVG-иконка для MCP-клиентов; иконка и отображаемое имя не влияют на authority ресурса.
 
 ### 6.2 Маршрутизация и внутренний протокол
 
