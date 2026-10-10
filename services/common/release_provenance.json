@@ -703,9 +703,9 @@
       "sha256": "81ff29ad2a168ba70a18c711e8cc8fcaa9037c5fe98a89037e3bc02043a55ef4"
     },
     {
-      "bytes": 4765,
+      "bytes": 4911,
       "path": "services/authorization/platform_composition.py",
-      "sha256": "2c31d76db6ac31975a64744f1687ed77e9dff62d405c70173d8e84e52f6b4df4"
+      "sha256": "d5f86c6deaab3d36c5a101dbd50bbcc3a61a52440a411992c97d30d03a7cec2a"
     },
     {
       "bytes": 267,
@@ -1993,7 +1993,7 @@
       "sha256": "ffed8d3806289c75e707b00e0882ce6ec36194885506f98e278404069bee1df3"
     }
   ],
-  "source_input_sha256": "c2825f5bbdca07a5f805f769ce5dfa11a1d9d187409f776d8b72753e732aa44a",
-  "version": "0.1.0+a13.sc2825f5bbdca07a5",
+  "source_input_sha256": "afcfb154a1f4f29833ab9581273bb5458bd949303301d48a19887d9e1811163d",
+  "version": "0.1.0+a13.safcfb154a1f4f298",
   "wheel_tag": "py3-none-any"
 }

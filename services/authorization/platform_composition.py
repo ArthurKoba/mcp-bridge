@@ -68,6 +68,8 @@ def compose_platform(
     signed_authorization: ServiceIdentitySettings | None = None,
     first_admin_operator_gate: UnixFirstAdminOperatorGate | None = None,
 ) -> PlatformServices:
+    # Retained signature is deliberately uncallable; discard legacy parameters.
+    del settings, signed_authorization, first_admin_operator_gate
     raise RuntimeError(
         "single-DB PlatformServices composition is forbidden; use verified owner ports"
     )
