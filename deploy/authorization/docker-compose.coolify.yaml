@@ -29,6 +29,7 @@ services:
       POSTGRES_DB: "briareus_access"
       POSTGRES_USER: "${POSTGRES_USER:?}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+      SERVICE_URL_BRIAREUS_AUTHORIZATION_8000: "/"
 networks:
   briareus:
     external: true

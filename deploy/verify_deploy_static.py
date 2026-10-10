@@ -107,10 +107,12 @@ def run(source_root: Path, allow_pending: bool) -> None:
         # Public domain routes must be declared only as canonical Coolify
         # magic keys. Never interpolate SERVICE_URL_* in Compose values:
         # Docker Compose resolves variables before Coolify can supply them.
-        if module in {'admin-api', 'admin-ui'}:
-            public_port = '8000' if module == 'admin-api' else '8080'
+        if module in {'admin-api', 'admin-ui', 'authorization'}:
+            public_port = '8080' if module == 'admin-ui' else '8000'
             service_key = f'briareus-{module}'
-            public_key = 'PUBLIC_API_URL' if module == 'admin-api' else 'PUBLIC_UI_URL'
+            public_key = {'admin-api': 'PUBLIC_API_URL',
+                          'admin-ui': 'PUBLIC_UI_URL',
+                          'authorization': 'PUBLIC_AUTH_URL'}[module]
             magic_key = 'SERVICE_URL_' + service_key.upper().replace('-', '_') + '_' + public_port
             public_env = override['services'][service_key]['environment']
             if public_env.get(magic_key) != '/' or public_key in public_env:
