@@ -40,8 +40,8 @@
         "TZ": "{{team.TZ}}",
         "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
-        "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
-        "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}",
         "IDENTITY_POSTGRES_USER": "{{environment.IDENTITY_POSTGRES_USER}}",
         "IDENTITY_POSTGRES_PASSWORD": "{{environment.IDENTITY_POSTGRES_PASSWORD}}",
         "IDENTITY_MIGRATION_POSTGRES_USER": "{{environment.IDENTITY_MIGRATION_POSTGRES_USER}}",
@@ -63,8 +63,8 @@
         "TZ": "{{team.TZ}}",
         "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
-        "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
-        "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}",
         "CONTROL_POSTGRES_USER": "{{environment.CONTROL_POSTGRES_USER}}",
         "CONTROL_POSTGRES_PASSWORD": "{{environment.CONTROL_POSTGRES_PASSWORD}}",
         "CONTROL_MIGRATION_POSTGRES_USER": "{{environment.CONTROL_MIGRATION_POSTGRES_USER}}",
@@ -86,8 +86,8 @@
         "TZ": "{{team.TZ}}",
         "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
-        "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
-        "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}",
         "CATALOG_POSTGRES_USER": "{{environment.CATALOG_POSTGRES_USER}}",
         "CATALOG_POSTGRES_PASSWORD": "{{environment.CATALOG_POSTGRES_PASSWORD}}",
         "CATALOG_MIGRATION_POSTGRES_USER": "{{environment.CATALOG_MIGRATION_POSTGRES_USER}}",
@@ -109,8 +109,8 @@
         "TZ": "{{team.TZ}}",
         "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
-        "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
-        "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}",
         "ACCESS_POSTGRES_USER": "{{environment.ACCESS_POSTGRES_USER}}",
         "ACCESS_POSTGRES_PASSWORD": "{{environment.ACCESS_POSTGRES_PASSWORD}}",
         "ACCESS_MIGRATION_POSTGRES_USER": "{{environment.ACCESS_MIGRATION_POSTGRES_USER}}",
@@ -132,8 +132,8 @@
         "TZ": "{{team.TZ}}",
         "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
         "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
-        "SERVICE_NAMESPACE": "{{environment.SERVICE_NAMESPACE}}",
-        "DEPLOYMENT_ENVIRONMENT": "{{environment.DEPLOYMENT_ENVIRONMENT}}"
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
       }
     },
     {
@@ -261,8 +261,7 @@
       "OTLP_BEARER_TOKEN"
     ],
     "environment_shared": [
-      "SERVICE_NAMESPACE",
-      "DEPLOYMENT_ENVIRONMENT",
+      "OTEL_DEPLOYMENT_ENVIRONMENT_NAME",
       "POSTGRES_USER",
       "POSTGRES_PASSWORD",
       "VALKEY_PASSWORD",
@@ -300,9 +299,10 @@
     "safe_defaults": {
       "POSTGRES_DB": "briareus_dev",
       "POSTGRES_PORT": "5432",
-      "TZ": "UTC",
-      "SERVICE_NAMESPACE": "briareus",
-      "DEPLOYMENT_ENVIRONMENT": "development"
-    }
+      "TZ": "UTC"
+    },
+    "project_shared": [
+      "OTEL_SERVICE_NAMESPACE"
+    ]
   }
 }

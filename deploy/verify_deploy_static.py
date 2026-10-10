@@ -27,7 +27,7 @@ MODULES = frozenset({
     'gateway','files','terminal','web','svc','infrastructure','reverse',
 })
 REQUIRED = re.compile(r'\$\{([A-Z][A-Z0-9_]*):\?\}')
-SHARED = re.compile(r'\{\{(team|environment)\.([A-Z][A-Z0-9_]*)\}\}')
+SHARED = re.compile(r'\{\{(team|project|environment)\.([A-Z][A-Z0-9_]*)\}\}')
 NETWORK = {'briareus':{'external':True,'name':'briareus-net'}}
 
 
@@ -118,10 +118,29 @@ def run(source_root: Path, allow_pending: bool) -> None:
             if public_port not in [str(x) for x in exposed]:
                 fatal(f'{module}: public domain port mismatch')
             if module == 'admin-api':
-                if public_env.get('SERVICE_NAMESPACE') != '${SERVICE_NAMESPACE:?}':
+                if public_env.get('OTEL_SERVICE_NAMESPACE') != '${OTEL_SERVICE_NAMESPACE:?}':
                     fatal('admin-api: namespace must be required explicit ENV')
                 if public_env.get('OTEL_SERVICE_NAME') != '${OTEL_SERVICE_NAME:-admin-api}':
                     fatal('admin-api: OTEL_SERVICE_NAME must be editable with safe default')
+        # Telemetry configuration is never named SERVICE_*, which Coolify
+        # reserves for generated values. Match real OpenTelemetry resource keys
+        # through our Briareus-specific environment aliases.
+        if module in {'identity','platform','resources','authorization','admin-api'}:
+            service = f'briareus-{module}'
+            env = override['services'][service]['environment']
+            if env.get('OTEL_SERVICE_NAMESPACE') != '${OTEL_SERVICE_NAMESPACE:?}':
+                fatal(f'{module}: missing required Project OTEL service namespace')
+            if env.get('OTEL_DEPLOYMENT_ENVIRONMENT_NAME') != '${OTEL_DEPLOYMENT_ENVIRONMENT_NAME:?}':
+                fatal(f'{module}: missing required Environment OTEL deployment name')
+            shared = a['shared_variables']
+            if shared.get('OTEL_SERVICE_NAMESPACE') != '{{project.OTEL_SERVICE_NAMESPACE}}':
+                fatal(f'{module}: wrong Project telemetry namespace reference')
+            if shared.get('OTEL_DEPLOYMENT_ENVIRONMENT_NAME') != '{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}':
+                fatal(f'{module}: wrong Environment telemetry deployment reference')
+        for service_env in (base['services'].values(), override['services'].values()):
+            for entry in service_env:
+                if any(key in entry.get('environment',{}) for key in ('SERVICE_NAMESPACE','DEPLOYMENT_ENVIRONMENT')):
+                    fatal(f'{module}: legacy telemetry ENV detected')
         watches=watch_list(module)
         for path in watches:
             if path in {'deploy/README.md','deploy/SHA256SUMS','deploy/APPLICATIONS.json','deploy/watch_impact.py'} or path.startswith('docs/'):

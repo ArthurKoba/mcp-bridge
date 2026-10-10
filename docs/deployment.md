@@ -129,7 +129,7 @@ The static infrastructure Compose stack attaches `postgres` and `valkey` directl
 Coolify resource environment variables are the Compose inputs. Production references shared variables rather than generated `SERVICE_*` placeholders:
 
 ```text
-POSTGRES_DB={{project.SERVICE_NAMESPACE}}
+POSTGRES_DB={{project.OTEL_SERVICE_NAMESPACE}}
 POSTGRES_USER={{environment.POSTGRES_USER}}
 POSTGRES_PASSWORD={{environment.POSTGRES_PASSWORD}}
 ```
