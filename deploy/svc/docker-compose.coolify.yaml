@@ -18,6 +18,11 @@ services:
       service: briareus-svc
     environment:
       TZ: "${TZ:-UTC}"
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-}"
+      OTLP_BEARER_TOKEN: "${OTLP_BEARER_TOKEN:-}"
+      OTEL_SERVICE_NAMESPACE: "${OTEL_SERVICE_NAMESPACE:?}"
+      OTEL_DEPLOYMENT_ENVIRONMENT_NAME: "${OTEL_DEPLOYMENT_ENVIRONMENT_NAME:?}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:?}"
 networks:
   briareus:
     external: true

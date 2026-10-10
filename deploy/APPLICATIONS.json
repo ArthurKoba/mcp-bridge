@@ -162,7 +162,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/gateway/Dockerfile",
       "module": "gateway",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "Files",
@@ -175,7 +181,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/files/Dockerfile",
       "module": "files",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "Terminal",
@@ -188,7 +200,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/terminal/Dockerfile",
       "module": "terminal",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "Web",
@@ -201,7 +219,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/web/Dockerfile",
       "module": "web",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "SVC",
@@ -214,7 +238,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/svc/Dockerfile",
       "module": "svc",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "Infrastructure",
@@ -227,7 +257,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/infrastructure/Dockerfile",
       "module": "infrastructure",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     },
     {
       "name": "Reverse",
@@ -240,7 +276,13 @@
       "activation": "source_only_uv_direct_image_build_live_activation_blocked",
       "dockerfile": "deploy/reverse/Dockerfile",
       "module": "reverse",
-      "shared_variables": {}
+      "shared_variables": {
+        "TZ": "{{team.TZ}}",
+        "OTLP_ENDPOINT": "{{team.OTLP_ENDPOINT}}",
+        "OTLP_BEARER_TOKEN": "{{team.OTLP_BEARER_TOKEN}}",
+        "OTEL_SERVICE_NAMESPACE": "{{project.OTEL_SERVICE_NAMESPACE}}",
+        "OTEL_DEPLOYMENT_ENVIRONMENT_NAME": "{{environment.OTEL_DEPLOYMENT_ENVIRONMENT_NAME}}"
+      }
     }
   ],
   "provisioning_status": "source_only_uv_direct_live_provisioning_blocked",

@@ -120,18 +120,20 @@ def run(source_root: Path, allow_pending: bool) -> None:
             if module == 'admin-api':
                 if public_env.get('OTEL_SERVICE_NAMESPACE') != '${OTEL_SERVICE_NAMESPACE:?}':
                     fatal('admin-api: namespace must be required explicit ENV')
-                if public_env.get('OTEL_SERVICE_NAME') != '${OTEL_SERVICE_NAME:-admin-api}':
-                    fatal('admin-api: OTEL_SERVICE_NAME must be editable with safe default')
+                if public_env.get('OTEL_SERVICE_NAME') != '${OTEL_SERVICE_NAME:?}':
+                    fatal('admin-api: OTEL_SERVICE_NAME must be operator-required')
         # Telemetry configuration is never named SERVICE_*, which Coolify
         # reserves for generated values. Match real OpenTelemetry resource keys
         # through our Briareus-specific environment aliases.
-        if module in {'identity','platform','resources','authorization','admin-api'}:
+        if module not in {'data','admin-ui'}:
             service = f'briareus-{module}'
             env = override['services'][service]['environment']
             if env.get('OTEL_SERVICE_NAMESPACE') != '${OTEL_SERVICE_NAMESPACE:?}':
                 fatal(f'{module}: missing required Project OTEL service namespace')
             if env.get('OTEL_DEPLOYMENT_ENVIRONMENT_NAME') != '${OTEL_DEPLOYMENT_ENVIRONMENT_NAME:?}':
                 fatal(f'{module}: missing required Environment OTEL deployment name')
+            if env.get('OTEL_SERVICE_NAME') != '${OTEL_SERVICE_NAME:?}':
+                fatal(f'{module}: OTEL_SERVICE_NAME must be an operator-required runtime input')
             shared = a['shared_variables']
             if shared.get('OTEL_SERVICE_NAMESPACE') != '{{project.OTEL_SERVICE_NAMESPACE}}':
                 fatal(f'{module}: wrong Project telemetry namespace reference')
@@ -160,8 +162,9 @@ def run(source_root: Path, allow_pending: bool) -> None:
                     fatal(f'{module}: base/Coolify ENV mismatch {key}')
             used=set(REQUIRED.findall(str(override['services'][service]['environment'])))
             bindings=a.get('shared_variables',{})
-            if not used<=set(bindings):
-                fatal(f'{module}: required ENV lacks scoped reference: {used-set(bindings)}')
+            allowed_required=set(bindings) | ({'OTEL_SERVICE_NAME'} if module not in {'data','admin-ui'} else set())
+            if not used<=allowed_required:
+                fatal(f'{module}: required ENV lacks scoped reference: {used-allowed_required}')
             for key,ref in bindings.items():
                 match=SHARED.fullmatch(ref)
                 if match is None or key!=match.group(2) or key not in cfg[match.group(1)+'_shared']:
@@ -234,8 +237,7 @@ def run(source_root: Path, allow_pending: bool) -> None:
             if (record['owner'],record['database'],record['role_env'],record['secret_env'])!=(owner,db,env_key+'_POSTGRES_USER',env_key+'_POSTGRES_PASSWORD'):
                 fatal(f'{module}: DB owner manifest mismatch')
             env=override['services'][f'briareus-{module}']['environment']
-            expected_otel='authorization' if module=='authorization' else module
-            if env.get('OTEL_SERVICE_NAME')!=expected_otel:
+            if env.get('OTEL_SERVICE_NAME')!='${OTEL_SERVICE_NAME:?}':
                 fatal(f'{module}: OTel service_name mismatches real owner_runtime telemetry identity')
             if env['POSTGRES_DB']!=db or env['POSTGRES_HOST']!='briareus-postgres':
                 fatal(f'{module}: stale / shared god database target')

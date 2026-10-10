@@ -10,6 +10,11 @@ services:
     command: ["/bin/sh", "-ec", "echo BRIAREUS_SVC_AUTH_PENDING >&2; exit 78"]
     environment:
       TZ: "${TZ:-UTC}"
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-}"
+      OTLP_BEARER_TOKEN: "${OTLP_BEARER_TOKEN:-}"
+      OTEL_SERVICE_NAMESPACE: "${OTEL_SERVICE_NAMESPACE:?}"
+      OTEL_DEPLOYMENT_ENVIRONMENT_NAME: "${OTEL_DEPLOYMENT_ENVIRONMENT_NAME:?}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:?}"
     expose:
       - "8000"
     networks:
