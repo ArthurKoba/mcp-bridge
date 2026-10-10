@@ -1,0 +1,32 @@
+x-watch-path-coolify:
+  - "deploy/identity/Dockerfile"
+  - "deploy/identity/Dockerfile.dockerignore"
+  - "deploy/identity/docker-compose.yaml"
+  - "deploy/identity/docker-compose.coolify.yaml"
+  - "deploy/identity/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
+
+# Coolify parses literals and Required ENV before resolving Shared references.
+services:
+  briareus-identity:
+    extends:
+      file: docker-compose.yaml
+      service: briareus-identity
+    environment:
+      TZ: "${TZ:-UTC}"
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-}"
+      OTLP_BEARER_TOKEN: "${OTLP_BEARER_TOKEN:-}"
+      SERVICE_NAMESPACE: "${SERVICE_NAMESPACE:-briareus}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-development}"
+      OTEL_SERVICE_NAME: "identity"
+      POSTGRES_HOST: "briareus-postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "briareus_identity"
+      POSTGRES_USER: "${IDENTITY_POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${IDENTITY_POSTGRES_PASSWORD:?}"
+      MIGRATION_POSTGRES_USER: "${IDENTITY_MIGRATION_POSTGRES_USER:?}"
+      MIGRATION_POSTGRES_PASSWORD: "${IDENTITY_MIGRATION_POSTGRES_PASSWORD:?}"
+networks:
+  briareus:
+    external: true
+    name: briareus-net

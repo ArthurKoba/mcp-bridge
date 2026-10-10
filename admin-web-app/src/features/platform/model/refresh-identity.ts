@@ -1,5 +1,6 @@
 import { platformPort } from "@/features/platform/api/port"
 import { projectContext } from "@/features/platform/model/project-context"
+import { refreshBffOwnerBoundary } from "@/features/platform/model/refresh-owner-boundary"
 import type { PlatformPort } from "@/features/platform/model/contracts"
 
 interface ProjectionRefresh {
@@ -36,6 +37,7 @@ export function refreshAuthenticatedProjection(): Promise<void> {
         return
       }
       projectContext.installServerProjection(projection)
+      await refreshBffOwnerBoundary()
     } catch {
       if(!controller.signal.aborted&&port===platformPort.value&&revision===projectContext.state.revision&&actor===projectContext.state.user?.key) {
         // Unverified stale permission projections cannot stay actionable.

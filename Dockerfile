@@ -49,7 +49,9 @@ CMD ["/app/.venv/bin/python", "-m", "common.asgi"]
 
 FROM runtime-base AS authorization
 COPY services/authorization ./services/authorization
-COPY scripts/provision_authorization_database.py ./scripts/provision_authorization_database.py
+# The historical global Authorization DB provisioner was retired with
+# briareus_dev. Owner-local migrations belong ONLY to the reviewed Backend
+# owner-specific startup image; never resurrect a missing global init script.
 ENV ASGI_APP=authorization.runtime:app
 
 

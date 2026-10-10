@@ -4,8 +4,9 @@ import { useI18n } from "vue-i18n"
 import { projectContext } from "@/features/platform/model/project-context"
 import { refreshAuthenticatedProjection } from "@/features/platform/model/refresh-identity"
 import { platformPort } from "@/features/platform/api/port"
-import { useCommand, useDomain } from "@/features/platform/model/use-domain"
-import { providerAuthTypes, providerCatalog, sourceProviderOptions, validResourceAlias, type SourceProviderName } from "@/features/platform/model/provider-options"
+import { useCommand, useDomain, sourceMutationReady } from "@/features/platform/model/use-domain"
+import { currentCatalogRowAllows } from "@/features/platform/model/resource-provenance"
+import { providerAuthTypes, providerCatalog, sourceProviderOptions, validResourceAlias, validCatalogValue, type SourceProviderName } from "@/features/platform/model/provider-options"
 import type { ProjectAccountInput, ProjectAccountView, ResourceOwner, ResourceScope, UiCapability, SourceCommandBinding } from "@/features/platform/model/contracts"
 import PlatformFeedback from "@/features/platform/ui/PlatformFeedback.vue"
 import ScopedResourcePicker from "@/features/platform/ui/ScopedResourcePicker.vue"
@@ -14,6 +15,8 @@ import AppDialog from "@/shared/ui/AppDialog.vue"
 import Button from "@/shared/ui/Button.vue"
 import InstantTime from "@/shared/ui/InstantTime.vue"
 import PageHeader from "@/shared/ui/PageHeader.vue"
+import ScopedSearch from "@/features/platform/ui/ScopedSearch.vue"
+import { matchesLoaded } from "@/features/platform/model/scoped-search"
 
 const {t}=useI18n()
 const selectedProject=computed(()=>projectContext.state.projects.find(project=>project.key===projectContext.state.activeProjectKey))
@@ -55,8 +58,11 @@ const command=useCommand(["project","team"])
 const can=projectContext.can
 const ownerKind=ref<"project"|"team">("project")
 const providerFilter=ref<"all"|ProjectAccountView["provider"]>("all")
+const accountSearch=ref("")
 const providers=Object.keys(providerCatalog) as SourceProviderName[]
-const visible=computed(()=>accounts.state.items.filter(item=>providerFilter.value==="all"||item.provider===providerFilter.value))
+const visible=computed(()=>accounts.state.items.filter(item=>
+  (providerFilter.value==="all"||item.provider===providerFilter.value)&&
+  matchesLoaded(accountSearch.value,item.alias,item.provider,item.id,item.owner.kind==="team"?item.owner.teamId:item.owner.projectId)))
 const choices=computed(()=>visible.value.map(item=>({id:item.id,name:`${item.provider}:${item.alias}`,owner:item.owner})))
 const mode=ref<null|"create"|"rename"|"rotate">(null)
 const editing=ref<ProjectAccountView|null>(null)
@@ -68,7 +74,8 @@ const toDelete=ref<ProjectAccountView|null>(null)
 const confirmRotate=ref(false)
 const localNotice=ref("")
 const canManageTeam=computed(()=>Boolean(selectedTeamId.value&&can("accounts.teamManage")))
-const canCreate=computed(()=>projectContext.state.scope==="team"?canManageTeam.value:can("accounts.manage")||canManageTeam.value)
+const canCreate=computed(()=>Boolean(requestedOwner.value&&
+  sourceMutationReady(actionFor(requestedOwner.value),statusFor(requestedOwner.value,"create"))))
 const requestedOwner=computed<ResourceOwner|null>(()=>{
   if(editing.value)return editing.value.owner
   if(projectContext.state.scope==="team"||ownerKind.value==="team")return selectedTeamId.value?{kind:"team",teamId:selectedTeamId.value}:null
@@ -85,20 +92,24 @@ function statusFor(owner:ResourceOwner,kind:"create"|"update"|"rotate"|"revoke",
   return {operation,target:owner.kind==="team"?{kind:"team",id:owner.teamId}:
     {kind:"project_resource",id:owner.projectId}}
 }
-function canManage(item:ProjectAccountView):boolean {
+function canManage(item:ProjectAccountView,kind:"update"|"rotate"|"revoke"="update"):boolean {
+  if(accounts.state.status!=="ready")return false
   const action=actionFor(item.owner)
-  return can(action)&&item.allowedActions?.[action]===true
+  return currentCatalogRowAllows(accounts.state.items,item,action)&&
+    sourceMutationReady(action,statusFor(item.owner,kind,item.id))
 }
-const mayWrite=computed(()=>Boolean(requestedOwner.value&&can(actionFor(requestedOwner.value))&&(!editing.value||canManage(editing.value))))
+const mayWrite=computed(()=>Boolean(requestedOwner.value&&
+  (mode.value==="create"?canCreate.value:
+    editing.value&&canManage(editing.value,mode.value==="rotate"?"rotate":"update"))))
 const authTypes=computed(()=>providerAuthTypes(form.provider))
 const settings=computed(()=>sourceProviderOptions(form))
 const catalogAllows=computed(()=>publishedProviders.state.items.some(item=>
   item.provider===form.provider && item.authTypes.includes(form.authType) && item.connectivityStatus==="unverified"))
 const valid=computed(()=>{
   if(!mayWrite.value||!validResourceAlias(form.alias))return false
-  if(mode.value==="create")return Boolean(catalogAllows.value&&settings.value&&form.credential.length>0)
+  if(mode.value==="create")return Boolean(catalogAllows.value&&settings.value&&validCatalogValue(form.credential))
   if(mode.value==="rename")return Boolean(editing.value&&form.alias.trim()!==editing.value.alias)
-  if(mode.value==="rotate")return Boolean(editing.value&&form.credential.length>0)
+  if(mode.value==="rotate")return Boolean(editing.value&&validCatalogValue(form.credential))
   return false
 })
 const verifyingAvailable=computed(()=>Boolean(platformPort.value?.capabilities?.candidateVerification))
@@ -121,7 +132,7 @@ function closeForm():void {
 }
 function begin(next:"create"|"rename"|"rotate",account?:ProjectAccountView):void {
   if(next==="create"&&!canCreate.value)return
-  if(next!=="create"&&(!account||!canManage(account)))return
+  if(next!=="create"&&(!account||!canManage(account,next==="rotate"?"rotate":"update")))return
   editing.value=account??null
   ownerKind.value=account?.owner.kind??(projectContext.state.scope==="team"||(!can("accounts.manage")&&canManageTeam.value)?"team":"project")
   resetSensitive()
@@ -159,7 +170,7 @@ function askRotate():void {
 }
 async function rotate():Promise<void> {
   const account=editing.value
-  if(!account||!canManage(account)||!form.credential.trim())return
+  if(!account||!canManage(account,"rotate")||!validCatalogValue(form.credential))return
   const credential=form.credential
   const done=await command.submit(actionFor(account.owner),(port,ctx)=>port.accounts.rotate(ctx,account,credential),
     statusFor(account.owner,"rotate",account.id))
@@ -169,7 +180,7 @@ async function rotate():Promise<void> {
 }
 async function remove():Promise<void> {
   const account=toDelete.value
-  if(!account||!canManage(account))return
+  if(!account||!canManage(account,"revoke"))return
   const done=await command.submit(actionFor(account.owner),(port,ctx)=>port.accounts.remove(ctx,account),
     statusFor(account.owner,"revoke",account.id))
   if(done){toDelete.value=null;await refreshAuthenticatedProjection();await accounts.reload()}
@@ -181,6 +192,7 @@ async function remove():Promise<void> {
       <Button variant="outline" size="sm" :disabled="!can('accounts.read')" @click="accounts.reload">{{t('common.refresh')}}</Button>
       <Button size="sm" :disabled="!canCreate" @click="begin('create')">{{t('common.add')}}</Button>
     </PageHeader>
+    <p v-if="!platformPort.value?.bff?.inspectOriginalCommand" role="status" class="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">{{t('platform.sourceCommandUnavailable')}}</p>
     <p class="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">{{t('platform.scopeCollisionRule')}}</p>
     <section class="settings-card space-y-2">
       <h2 class="text-sm font-semibold">{{t('platform.a5ProviderCatalog')}}</h2>
@@ -198,15 +210,17 @@ async function remove():Promise<void> {
       </label>
       <p v-else class="text-xs text-muted-foreground">{{t('platform.scopeTeam')}}</p>
       <div class="flex flex-wrap items-center gap-2" :aria-label="t('platform.provider')"><button v-for="provider in (['all',...providers] as const)" :key="provider" type="button" class="rounded-md border border-border px-3 py-1.5 text-xs capitalize" :class="providerFilter===provider?'bg-accent font-medium':'hover:bg-muted'" :aria-pressed="providerFilter===provider" @click="providerFilter=provider">{{provider==='all'?t('platform.allProviders'):provider}}</button></div>
+      <ScopedSearch v-if="accounts.state.status==='ready'" v-model="accountSearch" :label="t('platform.searchConnections')" :total="accounts.state.items.length" :visible="visible.length" :partial="accounts.state.possiblyTruncated||accounts.state.hasMore" />
       <ScopedResourcePicker v-if="accounts.state.status==='ready'" :items="choices" :label="t('platform.chooseConnection')" />
       <PlatformFeedback :status="accounts.state.status" :error="accounts.state.error" @retry="accounts.reload" />
-      <p v-if="accounts.state.status==='ready'&&!visible.length" class="p-3 text-sm text-muted-foreground">{{t('platform.empty')}}</p>
+            <p v-if="accounts.state.status==='ready'&&visible.some(account=>!canManage(account))" role="status" class="text-xs text-muted-foreground">{{t('platform.catalogCurrentGrantRequired')}}</p>
+<p v-if="accounts.state.status==='ready'&&!visible.length" role="status" class="p-3 text-sm text-muted-foreground">{{accountSearch?t('platform.noSearchResults'):t('platform.empty')}}</p>
       <div v-if="visible.length" class="overflow-x-auto"><table class="w-full min-w-[720px] text-left text-sm"><thead class="text-xs text-muted-foreground"><tr><th class="py-2">{{t('platform.provider')}}</th><th>{{t('platform.integrationAlias')}}</th><th>{{t('platform.sourceOwner')}}</th><th>{{t('common.status')}}</th><th>{{t('common.actions')}}</th></tr></thead>
         <tbody><tr v-for="account in visible" :key="`${account.visibleIn.kind}:${account.owner.kind}:${account.id}`" class="border-t border-border">
           <td class="py-3 capitalize">{{account.provider}}</td><td><div class="font-medium">{{account.alias}}</div><span class="block font-mono text-[10px] text-muted-foreground" :title="account.id">{{t('platform.resourceId')}}: {{account.id.slice(0,12)}}…</span><div v-if="account.baseUrl" class="max-w-64 truncate text-xs text-muted-foreground" :title="account.baseUrl">{{account.baseUrl}}</div><span v-if="account.updatedAt" class="block text-[10px] text-muted-foreground"><InstantTime :value="account.updatedAt" /></span><span class="text-xs text-muted-foreground">{{account.credentialConfigured===null?t('platform.notPublished'):account.credentialConfigured?t('platform.secretConfigured'):t('platform.secretMissing')}}</span></td>
           <td><div class="text-xs">{{account.owner.kind==='team'?t('platform.teamOwned'):t('platform.projectOwned')}}</div><span class="block text-xs text-muted-foreground">{{account.inherited?t('platform.inherited'):t('platform.directResource')}}</span><span class="block font-mono text-[10px] text-muted-foreground" :title="account.owner.kind==='team'?account.owner.teamId:account.owner.projectId">{{(account.owner.kind==='team'?account.owner.teamId:account.owner.projectId).slice(0,12)}}…</span></td>
           <td>{{account.connectionStatus==='unverified'?t('platform.providerUnverified'):t('platform.notPublished')}}</td>
-          <td><div class="flex flex-wrap gap-1"><Button size="sm" variant="outline" :disabled="!canManage(account)" @click="begin('rename',account)">{{t('platform.renameResource')}}</Button><Button size="sm" variant="outline" :disabled="!canManage(account)" @click="begin('rotate',account)">{{t('platform.rotateCredential')}}</Button><Button size="sm" variant="destructive" :disabled="!canManage(account)" @click="toDelete=account">{{t('platform.revoke')}}</Button></div></td>
+          <td><div class="flex flex-wrap gap-1"><Button size="sm" variant="outline" :disabled="!canManage(account)" @click="begin('rename',account)">{{t('platform.renameResource')}}</Button><Button size="sm" variant="outline" :disabled="!canManage(account,'rotate')" @click="begin('rotate',account)">{{t('platform.rotateCredential')}}</Button><Button size="sm" variant="destructive" :disabled="!canManage(account,'revoke')" @click="toDelete=account">{{t('platform.revoke')}}</Button></div></td>
         </tr></tbody></table></div>
     </section>
     <AppDialog :open="!!mode" :title="mode==='create'?t('platform.createIntegration'):mode==='rename'?t('platform.renameResource'):t('platform.rotateCredential')" width="620px" @close="closeForm">
@@ -227,6 +241,7 @@ async function remove():Promise<void> {
         <p v-if="editing" class="text-xs text-muted-foreground">{{t('platform.resourceOwnerImmutable')}}</p><p class="text-xs text-muted-foreground">{{mode==='rename'?t('platform.sourceRenameHint'):t('platform.credentialHint')}}</p>
         <p v-if="!verifyingAvailable&&mode==='create'" class="text-xs text-muted-foreground">{{t('platform.connectionCheckPending')}}</p>
         <p v-if="!valid" role="status" class="text-xs text-destructive">{{t('platform.accountValidation')}}</p>
+        <p v-if="(mode==='create'||mode==='rotate')&&form.credential&&!validCatalogValue(form.credential)" role="alert" class="text-xs text-destructive">{{t('platform.catalogValueLength')}}</p>
         <p v-if="localNotice" role="status" class="text-xs text-muted-foreground">{{localNotice}}</p>
         <PlatformFeedback status="idle" :action-error="command.state.error" :reconciled="command.state.reconciliationNotice" :busy="command.state.busy" @reconcile="command.reconcile" />
       </form>

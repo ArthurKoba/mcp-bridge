@@ -2,8 +2,8 @@
 """Reconcile Briareus DEV Coolify resources from deploy/APPLICATIONS.json.
 
 Dry-run is the default. --apply may create only the dedicated Briareus project,
-development environment, briareus-net standalone Destination, and the 11 named
-Git-backed Applications. It NEVER starts/deploys an Application, changes DNS,
+development environment, briareus-net standalone Destination, and the current declared
+Git-backed Applications after a reviewed release. It NEVER starts/deploys an Application, changes DNS,
 OAuth issuer, legacy resources, or invents secret values.
 
 The source registry declares Team/Environment Shared bindings by variable name.
@@ -88,9 +88,9 @@ def read_registry(root: Path) -> dict:
     if registry.get("repository") != REPOSITORY or registry.get("server") != SERVER_NAME or registry.get("environment") != ENVIRONMENT_NAME:
         raise BootstrapError("APPLICATIONS.json does not describe canonical Briareus DEV target")
     apps = registry.get("applications")
-    if not isinstance(apps, list) or len(apps) != 11 or len({x.get("name") for x in apps}) != 11:
-        raise BootstrapError("APPLICATIONS.json must contain exactly 11 unique Applications")
-    if len({x.get("module") for x in apps}) != 11:
+    if not isinstance(apps, list) or len(apps) < 11 or len({x.get("name") for x in apps}) != len(apps):
+        raise BootstrapError("APPLICATIONS.json requires nonempty unique Application names")
+    if len({x.get("module") for x in apps}) != len(apps):
         raise BootstrapError("APPLICATIONS.json must have explicit unique module identities")
     return registry
 
@@ -140,12 +140,16 @@ def main() -> int:
     base=normalize_origin(args.coolify_url)
     root=Path(__file__).resolve().parent
     registry=read_registry(root)
+    # A checked-out SOURCE DRAFT must never be used to create/reconcile live Apps.
+    # Enabling apply requires accepted source/publication status AND an independently
+    # authorized Coolify write token/version; no environment variable bypass.
+    if args.apply and registry.get("provisioning_status") != "approved_published_live_configuration":
+        raise BootstrapError("owner DB/source staging is NOT approved for Coolify mutation")
     config=registry.get("configuration_contract")
     if not isinstance(config, dict):
         raise BootstrapError("APPLICATIONS.json missing configuration_contract")
     allowed_scopes={"team":frozenset(config.get("team_shared", [])),
                     "environment":frozenset(config.get("environment_shared", []))}
-    secret_keys=frozenset(config.get("secret_keys", []))
     if config.get("read_secret_values") is not False:
         raise BootstrapError("secret read policy must remain disabled")
     bindings_by_app={}
@@ -188,9 +192,8 @@ def main() -> int:
         raise BootstrapError("COOLIFY_API_TOKEN is required for remote reconciliation")
     version=str(api(base,token,"GET","version")).strip('"')
     print(f"REMOTE: Coolify version={version}")
-    if args.apply:
-        if not args.expected_version or version != args.expected_version:
-            raise BootstrapError("--apply requires exact --expected-version matching installed Coolify")
+    if args.apply and (not args.expected_version or version != args.expected_version):
+        raise BootstrapError("--apply requires exact --expected-version matching installed Coolify")
 
     servers=api(base,token,"GET","servers")
     server=next((x for x in servers if x.get("uuid")==SERVER_UUID and x.get("name")==SERVER_NAME),None)

@@ -21,14 +21,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import AccessBase
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-class ServiceKeyRow(PlatformBase):
+class ServiceKeyRow(AccessBase):
     __tablename__ = "service_keys"
     __table_args__ = (
         CheckConstraint("key_version >= 1", name="ck_service_key_version"),
@@ -50,14 +50,12 @@ class ServiceKeyRow(PlatformBase):
     public_key_b64: Mapped[str] = mapped_column(String(64))
     public_key_fingerprint: Mapped[str] = mapped_column(String(64))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    issued_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("identity.users.id", ondelete="RESTRICT")
-    )
+    issued_by_user_id: Mapped[UUID] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class ConsumedAssertionRow(PlatformBase):
+class ConsumedAssertionRow(AccessBase):
     __tablename__ = "consumed_assertions"
     __table_args__ = (
         CheckConstraint("kind IN ('service','delegation')", name="ck_assertion_kind"),
@@ -74,9 +72,7 @@ class ConsumedAssertionRow(PlatformBase):
     kind: Mapped[str] = mapped_column(String(16))
     issuer_id: Mapped[UUID] = mapped_column(nullable=False)
     jti_digest: Mapped[str] = mapped_column(String(64))
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
     session_uuid: Mapped[UUID] = mapped_column(
         ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
     )

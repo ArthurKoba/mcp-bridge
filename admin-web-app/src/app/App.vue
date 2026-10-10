@@ -4,12 +4,14 @@ import { Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, X } from "lucide-vue-ne
 import { useI18n } from "vue-i18n"
 import { platformPort } from "@/features/platform/api/port"
 import { projectContext } from "@/features/platform/model/project-context"
+import { refreshBffOwnerBoundary } from "@/features/platform/model/refresh-owner-boundary"
 import { browserTelemetry } from "@/features/platform/model/browser-telemetry"
 import { normalizeUiError } from "@/features/platform/model/errors"
 import { validPlatformPage, type PlatformPageId } from "@/app/platform-navigation"
 import PlatformNav from "@/app/PlatformNav.vue"
 import ContextSwitcher from "@/features/platform/ui/ContextSwitcher.vue"
 import ScopedRealtimeStatus from "@/features/platform/ui/ScopedRealtimeStatus.vue"
+import OperationProgress from "@/features/platform/ui/OperationProgress.vue"
 import PublicAccountPage from "@/pages/platform/PublicAccountPage.vue"
 import Button from "@/shared/ui/Button.vue"
 import ToastHost from "@/shared/notifications/ToastHost.vue"
@@ -57,6 +59,12 @@ const error=ref("")
 const username=ref("")
 const password=ref("")
 const mobileNavOpen=ref(false)
+const isMobile=ref(false)
+let mobileQuery:MediaQueryList|null=null
+function syncMobile(event:MediaQueryListEvent|MediaQueryList):void {
+  isMobile.value=event.matches
+  if(!event.matches)mobileNavOpen.value=false
+}
 const mobileNavPanel=ref<HTMLElement|null>(null)
 const publicFlow=ref<"invitation"|"reset"|null>(null)
 const publicToken=ref("")
@@ -147,8 +155,22 @@ async function restore():Promise<void>{
     }
     const projection=await port.auth.restore(controller.signal)
     if(generation!==authGeneration||controller.signal.aborted||port!==platformPort.value)return
-    if(projection)projectContext.installServerProjection(projection)
-    else projectContext.clear()
+    if(projection){
+      projectContext.installServerProjection(projection)
+      if(!projection.user.active){
+        // Suspended/disabled Identity is explicit revocation. Purge the local
+        // memory-only bearer and command state; never call BFF owners or
+        // report a successful authenticated login under that principal.
+        port.auth.invalidate?.()
+        error.value=String(t("platform.suspendedNotice"))
+        return
+      }
+      await refreshBffOwnerBoundary()
+    }else{
+      port.auth.invalidate?.()
+      projectContext.clear()
+    }
+    if(generation!==authGeneration||controller.signal.aborted||port!==platformPort.value)return
     browserTelemetry.lifecycle("ok")
     ensureRoute()
   }catch(cause){
@@ -184,6 +206,13 @@ async function login():Promise<void>{
     const projection=await port.auth.login({username:username.value,password:password.value},controller.signal)
     if(generation!==authGeneration||controller.signal.aborted||port!==platformPort.value)return
     projectContext.installServerProjection(projection)
+    if(!projection.user.active){
+      port.auth.invalidate?.()
+      error.value=String(t("platform.suspendedNotice"))
+      return
+    }
+    await refreshBffOwnerBoundary()
+    if(generation!==authGeneration||controller.signal.aborted||port!==platformPort.value)return
     browserTelemetry.lifecycle("ok")
     unavailable.value=false
     ensureRoute()
@@ -256,8 +285,20 @@ function handleSidebarClick(event:MouseEvent):void {
   if(mobileNavOpen.value&&event.target instanceof Element&&event.target.closest("nav button"))closeMobileNav()
 }
 watch(platformPort,()=>{observeCredential();expireAuth();void restore()})
+watch(routePage,async()=>{
+  // SPA hash-route navigation must move keyboard/screen-reader focus from
+  // the old menu into the new page heading after the lazy view changes.
+  await nextTick()
+  document.getElementById("briareus-page-title")?.focus()
+})
+// Every explicit Team/Project switch invalidates prior owner revisions. Only
+// the authenticated BFF can restore owner readiness, never the UI cache.
+watch(()=>projectContext.state.revision,()=>{if(projectContext.state.user?.active)void refreshBffOwnerBoundary()})
 watch([verified,routePage,()=>projectContext.state.revision],()=>{if(verified.value)ensureRoute()})
 onMounted(()=>{
+  mobileQuery=window.matchMedia("(max-width: 767px)")
+  syncMobile(mobileQuery)
+  mobileQuery.addEventListener("change",syncMobile)
   observeCredential()
   onHistory()
   window.addEventListener("hashchange",onHistory)
@@ -266,6 +307,8 @@ onMounted(()=>{
   void restore()
 })
 onBeforeUnmount(()=>{
+  mobileQuery?.removeEventListener("change",syncMobile)
+  mobileQuery=null
   ++authGeneration
   authAbort?.abort()
   // Unsub FIRST, then revoke all browser-memory bearer material when this
@@ -321,7 +364,7 @@ onBeforeUnmount(()=>{
   </div>
   <div v-else class="min-h-screen bg-background text-foreground md:grid" :class="sidebarCollapsed?'md:grid-cols-[68px_minmax(0,1fr)]':'md:grid-cols-[240px_minmax(0,1fr)]'">
     <button v-if="mobileNavOpen" class="fixed inset-0 z-30 bg-black/40 md:hidden" :aria-label="t('platform.closeMenu')" tabindex="-1" @click="closeMobileNav" />
-    <aside ref="mobileNavPanel" tabindex="-1" :role="mobileNavOpen?'dialog':undefined" :aria-modal="mobileNavOpen?'true':undefined" :aria-label="t('platform.navigation.title')" @click="handleSidebarClick"
+    <aside ref="mobileNavPanel" tabindex="-1" :inert="isMobile&&!mobileNavOpen" :aria-hidden="isMobile&&!mobileNavOpen?'true':undefined" :role="mobileNavOpen?'dialog':undefined" :aria-modal="mobileNavOpen?'true':undefined" :aria-label="t('platform.navigation.title')" @click="handleSidebarClick"
       class="fixed inset-y-0 left-0 z-40 h-screen w-60 overflow-y-auto border-r border-border bg-sidebar p-3 transition-transform md:sticky md:top-0 md:w-auto md:translate-x-0"
       :class="mobileNavOpen?'translate-x-0':'-translate-x-full'">
       <div class="mb-5 flex h-10 items-center justify-between">
@@ -334,16 +377,17 @@ onBeforeUnmount(()=>{
     <main class="min-w-0">
       <header class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur sm:px-6">
         <Button id="mobile-nav-trigger" variant="ghost" size="icon" class="md:hidden" :aria-label="t('platform.openMenu')" :aria-expanded="mobileNavOpen" @click="mobileNavOpen=true"><Menu class="size-4"/></Button>
-        <h1 class="min-w-0 flex-1 truncate text-sm text-muted-foreground">{{title}}</h1>
+        <h1 id="briareus-page-title" tabindex="-1" class="min-w-0 flex-1 truncate text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{{title}}</h1>
         <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           <ContextSwitcher />
           <ScopedRealtimeStatus />
-          <span class="hidden max-w-32 truncate text-xs text-muted-foreground lg:inline">{{projectContext.state.user?.label}}</span>
+          <span class="hidden max-w-32 truncate text-xs text-muted-foreground lg:inline">{{projectContext.coreOwnerReady()?projectContext.state.user?.label:t('platform.ownerBoundaryState.unknown')}}</span>
           <Button variant="ghost" size="icon" :aria-label="t('settings.theme')" @click="theme=theme==='dark'?'light':'dark'"><Sun v-if="theme==='dark'" class="size-4"/><Moon v-else class="size-4"/></Button>
           <Button variant="outline" size="sm" :disabled="submitting" @click="logout">{{t('app.signOut')}}</Button>
         </div>
       </header>
       <div class="mx-auto w-full max-w-[1600px] p-3 sm:p-6">
+        <OperationProgress :active-page="activePage" />
         <component :is="screen" :key="`${projectContext.state.revision}:${activePage}`" v-bind="resourcePage[activePage]?{resource:resourcePage[activePage]}:{}" />
       </div>
     </main>

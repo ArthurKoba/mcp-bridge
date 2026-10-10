@@ -83,6 +83,7 @@ class ProjectFilesService:
             or current.decision_version != previous.decision_version
             or current.project_owner_scope != previous.project_owner_scope
             or current.project_owner_id != previous.project_owner_id
+            or current.owner_fence != previous.owner_fence
         ):
             raise ProjectAccessDenied("FILE_PROJECT_ACCESS_STALE")
         return current
@@ -180,6 +181,14 @@ class ProjectFilesService:
         try:
             if snapshot.size_bytes != metadata.size_bytes:
                 raise A6FilesUnavailable("A6_FILES_SNAPSHOT_REVISION_CHANGED")
+            scope = invocation.operation_scope
+            if scope is None or scope.action != "files.read":
+                raise A6FilesUnavailable("A6_FILES_SNAPSHOT_SIGNED_SCOPE_REQUIRED")
+            # ONE signed owner READ covers bounded private FD content. Every
+            # subsequent chunk still checks the current three-owner grant,
+            # without conflicting A11 (UUID, phase) idempotency payloads.
+            snapshot.signed_operation_uuid = scope.request_uuid
+            snapshot.signed_owner_fence = permit.owner_fence
             await self._confirm_read(invocation, permit)
             yield snapshot
         finally:
@@ -203,6 +212,14 @@ class ProjectFilesService:
         ):
             raise A6FilesUnavailable("A6_FILES_SIGNED_CHUNK_RANGE_INVALID")
         permit = await self.authority.require(invocation, "files.read")
+        scope = invocation.operation_scope
+        if (
+            scope is None
+            or scope.action != "files.read"
+            or snapshot.signed_operation_uuid != scope.request_uuid
+            or snapshot.signed_owner_fence != permit.owner_fence
+        ):
+            raise ProjectAccessDenied("FILE_SNAPSHOT_SIGNED_OWNER_CHANGED")
         if (
             snapshot.project_id != permit.project_id
             or snapshot.actor_id != permit.actor_id
@@ -211,13 +228,6 @@ class ProjectFilesService:
             or snapshot.agent_session_version != permit.decision_version
         ):
             raise ProjectAccessDenied("FILE_SNAPSHOT_SCOPE_DENIED")
-        await self._a6_read_permit(
-            invocation,
-            permit,
-            path=snapshot.path,
-            phase="read",
-            max_bytes=length,
-        )
         content = await _drain_cancellable_file_io(snapshot.read_chunk, offset, length)
         await self._confirm_read(invocation, permit)
         return content
@@ -365,6 +375,8 @@ class ProjectFilesService:
             async for chunk in chunks:
                 if not isinstance(chunk, bytes):
                     raise A6FilesUnavailable("A6_FILES_CHUNK_NOT_BYTES")
+                if len(chunk) > 262144 or offset + len(chunk) > expected_size:
+                    raise A6FilesUnavailable("A6_FILES_CHUNK_EXCEEDS_SIGNED_RESERVATION")
                 offset = await _drain_cancellable_file_io(stage.write_chunk, offset, chunk)
                 if offset > expected_size:
                     raise A6FilesUnavailable("A6_FILES_STREAM_OVERRAN_RESERVATION")
@@ -378,6 +390,7 @@ class ProjectFilesService:
                 or current.project_access_revision != initial.project_access_revision
                 or current.project_owner_scope != initial.project_owner_scope
                 or current.project_owner_id != initial.project_owner_id
+                or current.owner_fence != initial.owner_fence
                 or current.expires_at <= datetime.now(UTC)
                 or dispatched.expires_at <= datetime.now(UTC)
             ):

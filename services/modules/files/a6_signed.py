@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from modules.project_runtime import ProjectInvocation, ProjectPermit, ProjectRuntimeAuthority
 from modules.project_runtime.authorization import valid_project_revision
+from modules.project_runtime.owner_effects import OwnerEffectClient, OwnerEffectUnavailable
 
 from .project_workspace import _components
 
@@ -386,9 +387,19 @@ class A6SignedFilesFlow:
         self.timeout_seconds = timeout_seconds
 
     def require_write_ready(self) -> None:
-        # Must fail BEFORE reserve/dispatch, not after writing orphaned bytes.
+        # Fail BEFORE an external Web socket is opened, not after streaming
+        # bytes to a missing Files owner. An arbitrary historical A6 Backend
+        # or an adapter with unconfigured owner-local SQL cannot authorize
+        # work in the split-database topology.
         if self.peer_port is None or self.backend is None or self.observer is None:
-            raise A6FilesUnavailable("A6_FILES_SIGNED_PEER_OR_OS_SUPERVISOR_UNAVAILABLE")
+            raise A6FilesUnavailable("FILES_OWNER_OR_OS_SUPERVISOR_NOT_CONFIGURED")
+        effects = getattr(self.backend, "effects", None)
+        if not isinstance(effects, OwnerEffectClient):
+            raise A6FilesUnavailable("FILES_OWNER_SIGNED_LEDGER_REQUIRED")
+        try:
+            effects.require_effect_lifecycle("files")
+        except OwnerEffectUnavailable as exc:
+            raise A6FilesUnavailable("FILES_OWNER_SIGNED_LEDGER_NOT_READY") from exc
 
     async def _authorized(
         self,
@@ -398,8 +409,7 @@ class A6SignedFilesFlow:
         action: Literal["files.read", "files.write"],
         operation_uuid: UUID,
     ) -> tuple[ProjectPermit, VerifiedFilesPeer]:
-        if self.peer_port is None or self.backend is None:
-            raise A6FilesUnavailable("A6_FILES_SIGNED_TRANSPORT_UNAVAILABLE")
+        self.require_write_ready()
         scope = invocation.operation_scope
         if (
             invocation.service_evidence is None
@@ -420,13 +430,17 @@ class A6SignedFilesFlow:
             or fresh.project_access_revision != original.project_access_revision
             or fresh.project_owner_scope != original.project_owner_scope
             or fresh.project_owner_id != original.project_owner_id
+            or fresh.owner_fence != original.owner_fence
             or not valid_project_revision(fresh.project_access_revision)
             or fresh.expires_at <= datetime.now(UTC)
         ):
             raise A6FilesUnavailable("A6_FILES_ACCESS_REVOKED_OR_STALE")
+        peer_source = self.peer_port
+        if peer_source is None:
+            raise A6FilesUnavailable("FILES_OWNER_C2_PEER_UNAVAILABLE")
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                peer = await self.peer_port.verified_files_peer(invocation.service_evidence)
+                peer = await peer_source.verified_files_peer(invocation.service_evidence)
         except Exception as exc:
             raise A6FilesUnavailable("A6_FILES_PEER_UNAVAILABLE") from exc
         if (

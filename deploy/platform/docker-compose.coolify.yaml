@@ -1,0 +1,32 @@
+x-watch-path-coolify:
+  - "deploy/platform/Dockerfile"
+  - "deploy/platform/Dockerfile.dockerignore"
+  - "deploy/platform/docker-compose.yaml"
+  - "deploy/platform/docker-compose.coolify.yaml"
+  - "deploy/platform/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
+
+# Coolify parses literals and Required ENV before resolving Shared references.
+services:
+  briareus-platform:
+    extends:
+      file: docker-compose.yaml
+      service: briareus-platform
+    environment:
+      TZ: "${TZ:-UTC}"
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-}"
+      OTLP_BEARER_TOKEN: "${OTLP_BEARER_TOKEN:-}"
+      SERVICE_NAMESPACE: "${SERVICE_NAMESPACE:-briareus}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-development}"
+      OTEL_SERVICE_NAME: "platform"
+      POSTGRES_HOST: "briareus-postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "briareus_platform"
+      POSTGRES_USER: "${CONTROL_POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${CONTROL_POSTGRES_PASSWORD:?}"
+      MIGRATION_POSTGRES_USER: "${CONTROL_MIGRATION_POSTGRES_USER:?}"
+      MIGRATION_POSTGRES_PASSWORD: "${CONTROL_MIGRATION_POSTGRES_PASSWORD:?}"
+networks:
+  briareus:
+    external: true
+    name: briareus-net

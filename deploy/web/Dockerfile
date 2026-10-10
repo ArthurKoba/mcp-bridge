@@ -5,8 +5,7 @@ FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PYTHONPATH=/app/services
+    UV_LINK_MODE=copy
 WORKDIR /app
 COPY --from=chrome-devtools-mcp /usr/local/bin/node /usr/local/bin/node
 COPY --from=chrome-devtools-mcp /opt/chrome-devtools-mcp /opt/chrome-devtools-mcp
@@ -29,14 +28,17 @@ ENV ASGI_APP=modules.web.runtime:app \
     XDG_CONFIG_HOME=/browser/config \
     XDG_CACHE_HOME=/browser/cache \
     BREAKPAD_DUMP_LOCATION=/browser/crash
-COPY services/common ./services/common
-COPY services/modules/__init__.py ./services/modules/__init__.py
-COPY services/modules/project_runtime ./services/modules/project_runtime
-COPY services/modules/files ./services/modules/files
-COPY services/modules/web ./services/modules/web
 RUN useradd -u 1000 -m -d /home/bridge bridge \
     && mkdir -p /workspace /browser/profile /browser/config /browser/cache /browser/crash \
     && chown -R 1000:1000 /workspace /browser /home/bridge
+# PACKAGING-V1: dependency layer only; Briareus installed ONLY from reviewed immutable wheel.
+COPY deploy/install_wheel_release.py /app/install_wheel_release.py
+COPY deploy/web/wheel-pin.json /app/wheel-pin.json
+# BUILD BLOCKED on actual immutable wheel artifact delivery into this context.
+# No source overlay / ad hoc wheel build / network download / version fallback.
+COPY deploy/wheel_artifacts/ /app/wheel_artifacts/
+RUN python /app/install_wheel_release.py --pin /app/wheel-pin.json --wheel-directory /app/wheel_artifacts --python /app/.venv/bin/python \
+    && rm -rf /app/wheel_artifacts /app/install_wheel_release.py
 USER 1000:1000
 EXPOSE 8000
 CMD ["/app/.venv/bin/python", "-m", "common.asgi"]

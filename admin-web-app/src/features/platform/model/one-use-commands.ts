@@ -11,7 +11,7 @@ export interface OneUseAttempt {
   readonly mode: OneUseMode
   readonly idempotencyKey: string
 }
-const attempts = new Map<string, {attempt:OneUseAttempt; state:"pending"|"uncertain"|"acknowledged"}>()
+const attempts = new Map<string, {attempt:OneUseAttempt; state:"pending"|"uncertain"}>()
 const MAX_ATTEMPTS = 128
 
 async function begin(mode:OneUseMode, token:string):Promise<OneUseAttempt | null> {
@@ -30,13 +30,7 @@ function uncertain(attempt:OneUseAttempt):void {
     attempts.set(attempt.fingerprint,{attempt,state:"uncertain"})
   }
 }
-function acknowledged(attempt:OneUseAttempt):void {
-  const entry=attempts.get(attempt.fingerprint)
-  if(entry?.attempt.idempotencyKey===attempt.idempotencyKey)attempts.set(attempt.fingerprint,{attempt,state:"acknowledged"})
-}
-/** Explicit server-rejected input, before any verified commit, may be corrected. */
-function rejected(attempt:OneUseAttempt):void {
-  const entry=attempts.get(attempt.fingerprint)
-  if(entry?.attempt.idempotencyKey===attempt.idempotencyKey && entry.state==="pending") attempts.delete(attempt.fingerprint)
-}
-export const oneUseCommands={begin,uncertain,acknowledged,rejected}
+/** No accepted A11 signed redemption/first-user result; never expose an
+ * optimistic acknowledged/rejected state from an HTTP response. The only
+ * safe post-invocation state remains UNKNOWN until Backend A12 is approved. */
+export const oneUseCommands={begin,uncertain}

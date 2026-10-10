@@ -129,6 +129,7 @@ class ProjectIsolationInspector:
             or proof.valid_until > refreshed.expires_at
             or refreshed.project_owner_scope != permit.project_owner_scope
             or refreshed.project_owner_id != permit.project_owner_id
+            or refreshed.owner_fence != permit.owner_fence
         ):
             raise ProjectIsolationUnavailable("PROJECT_OS_PROJECT_ACCESS_STALE")
         return proof

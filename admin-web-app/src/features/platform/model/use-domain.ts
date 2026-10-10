@@ -5,7 +5,11 @@ import { platformPort } from "@/features/platform/api/port"
 import { normalizeUiError, type UiError } from "@/features/platform/model/errors"
 import { scopedEvents } from "@/features/platform/model/project-events"
 import { refreshAuthenticatedProjection } from "@/features/platform/model/refresh-identity"
+import { refreshBffOwnerBoundary } from "@/features/platform/model/refresh-owner-boundary"
+import { appendVerifiedKeyset } from "@/features/platform/model/scoped-keyset"
 import { commandCoordinator, resourceForAction, type CommandResource, type PendingCommand } from "@/features/platform/model/command-coordinator"
+import { confirmedBffEffect, crossOwnerMutation, groupVerifiedBffCapabilities,
+  verifiedBffEvidence } from "@/features/platform/api/bff-boundary"
 import type { CommandContext, PlatformPort, QueryContext, ScopeSelection, UiCapability, SourceCommandBinding } from "@/features/platform/model/contracts"
 
 function verifiedDecisionVersion(scope: ScopeSelection): string | null {
@@ -70,22 +74,29 @@ async function readActionDomain(port:PlatformPort, context:QueryContext, resourc
   }
 }
 
-/**
- * Only accepted A5 PROJECT-scoped commands have a queryable identity.
- * Never ask this route about global, Team, personal-create or User commands.
- * A 404/not_found/pending/4xx is an unresolved effect, NOT rollback proof.
- */
-async function confirmedProjectEffect(port:PlatformPort,context:QueryContext,entry:PendingCommand):Promise<boolean>{
-  // A5 command status exists ONLY for Project-owned operations. Refreshing a
-  // Team/global list is NOT a proof that an already-sent write did not commit.
-  if(!entry.sourceOperation||!entry.sourceTarget||!port.commandStatus)return false
-  const status=await port.commandStatus.get(context,{
-    operation:entry.sourceOperation,idempotencyKey:entry.commandId,target:entry.sourceTarget,
+/** Cross-owner completion requires original effect + every owner's acknowledged
+ * status. An A10 Project/Team HTTP 2xx alone is not a distributed commit. */
+async function completeCrossOwnerEffect(port:PlatformPort,context:QueryContext,entry:PendingCommand):Promise<boolean>{
+  if(!crossOwnerMutation(entry.action))return true
+  if(!port.bff?.inspectOriginalCommand||!entry.sourceOperation||!entry.sourceTarget)return false
+  const binding={operation:entry.sourceOperation,target:entry.sourceTarget}
+  // A write may advance owner revision. Recheck the current actor/scope/owner
+  // heads AFTER the write, then compare the effect receipts with those heads.
+  // This is an authenticated source GET, NOT a fresh mutation request.
+  if(!await refreshBffOwnerBoundary()||context.signal.aborted||
+     !sameScope(context.scope,context.revision))return false
+  const evidence=projectContext.state.ownerEvidence
+  if(!evidence)return false
+  // Only one bounded status inspection, never a poll loop or POST retry.
+  const timeout=AbortSignal.timeout(5_000)
+  const signal=AbortSignal.any([context.signal,timeout])
+  const result=await port.bff.inspectOriginalCommand({...context,signal},{binding,idempotencyKey:entry.commandId,operationUuid:entry.operationUuid})
+  if(signal.aborted)return false
+  return confirmedBffEffect(result,{
+    actor:projectContext.state.user?.key??"",scope:context.scope,binding,
+    idempotencyKey:entry.commandId,operationUuid:entry.operationUuid,
+    action:entry.action,ownerEvidence:evidence,
   })
-  return status.kind===entry.sourceTarget.kind&&status.id===entry.sourceTarget.id&&
-    status.operation===entry.sourceOperation&&
-    status.state==="completed"&&!status.reconciliationRequired&&
-    status.outcomeHttpStatus!==null&&status.outcomeHttpStatus>=200&&status.outcomeHttpStatus<300
 }
 
 export interface DomainLoad<T> {
@@ -94,6 +105,35 @@ export interface DomainLoad<T> {
 }
 export type ReadDomain<T> = (port: PlatformPort, context: QueryContext, after?:string|null) => Promise<DomainLoad<T>>
 export type WriteDomain = (port: PlatformPort, context: CommandContext) => Promise<unknown>
+/** One central source-only UI availability predicate for every button/form.
+ * It checks an inspectable original operation, current ACL/owner attestation,
+ * no unresolved in-memory command, and a *present* reviewed BFF inspector.
+ * This cannot install or authorize a REST endpoint by itself. */
+export function sourceMutationReady(ability:UiCapability,selector:string|SourceCommandBinding|null):boolean {
+  const port=platformPort.value
+  const scope=projectContext.selection()
+  const principal=projectContext.state.user?.key??""
+  if(!port?.bff?.inspectOriginalCommand||!scope||!principal||!selector||
+     !projectContext.can(ability)||!commandCoordinator.supportedSourceBinding(scope,selector)||
+     commandCoordinator.lookup(principal,scope))return false
+  // Explicit owner-bound source fence. An adapter's projected allowedAction
+  // is not permission to choose an unrelated Team-owned resource or run a
+  // Team command against another Team while inside a Project.
+  if(typeof selector!=="string"){
+    const owner=selector.target.kind==="resource"?selector.target.owner:
+      selector.target.kind==="team"?{kind:"team" as const,teamId:selector.target.id}:null
+    if(owner?.kind==="team"){
+      if(scope.kind==="team"&&owner.teamId!==scope.teamId)return false
+      if(scope.kind==="project"){
+        const project=projectContext.state.projects.find(item=>item.key===scope.projectId)
+        if(project?.ownership!=="team"||project.ownerTeamId!==owner.teamId||
+           project.lifecycleStatus!=="active")return false
+      }
+      if(scope.kind==="account"&&!projectContext.state.teams.some(item=>item.key===owner.teamId))return false
+    }
+  }
+  return true
+}
 export type LoadStatus = "blocked" | "idle" | "loading" | "ready" | "empty" | "error"
 
 function sameScope(expected: ScopeSelection, revision: number): boolean {
@@ -102,11 +142,6 @@ function sameScope(expected: ScopeSelection, revision: number): boolean {
   if (selected.kind === "project") return expected.kind === "project" && selected.projectId === expected.projectId
   if (selected.kind === "team") return expected.kind === "team" && selected.teamId === expected.teamId
   return true
-}
-function requiresReconciliation(error: UiError): boolean {
-  // No automatic replay with a fresh idempotency key after an uncertain write.
-  // 409 may represent a stale version, collision, or still-running command.
-  return error.kind === "uncertain" || error.kind === "conflict" || error.kind === "unknown"
 }
 /** Only trusted fixed error KIND enters telemetry. Never raw server code/URL. */
 function diagnosticOutcome(error:UiError):DiagnosticOutcome {
@@ -134,6 +169,7 @@ export function useDomain<T>(
   read: ReadDomain<T>,
   scopes: ScopeSelection["kind"][] = ["account", "team", "project", "operator"],
   available: (port: PlatformPort) => boolean = () => true,
+  keyOf?: (item:T)=>string,
 ) {
   const state = shallowReactive({
     items: [] as T[],
@@ -164,7 +200,15 @@ export function useDomain<T>(
   function usable(): boolean {
     const scope = projectContext.selection()
     const port = platformPort.value
-    return Boolean(port && available(port) && scope && scopes.includes(scope.kind) && projectContext.can(ability))
+    // Every protected UI read is served only by a real same-origin BFF
+    // composition. The retired global A10 source port is not eligible even
+    // if its opaque User/project read projection happens to parse.
+    const domains=port?groupVerifiedBffCapabilities(port):null
+    const ownerProof=projectContext.state.ownerEvidence
+    return Boolean(port&&domains&&available(port)&&scope&&scopes.includes(scope.kind)&&
+      projectContext.state.user?.active&&ownerProof&&
+      verifiedBffEvidence(ownerProof,projectContext.state.user.key,scope)&&
+      projectContext.can(ability))
   }
   function invalidate(): void {
     ++readRun
@@ -232,6 +276,10 @@ export function useDomain<T>(
     try {
       const result = await read(port, context)
       if (disposed || generation !== readRun || abort.signal.aborted || !sameScope(context.scope, context.revision) || port !== platformPort.value) return false
+      // A previously authorized GET can return AFTER the 60-second owner
+      // evidence TTL or a same-revision Identity/Access revoke. Do not paint
+      // stale protected rows while the expiry/epoch invalidation is pending.
+      if(!usable()){invalidate();return false}
       state.items = result.items
       state.revision = result.revision ?? null
       state.serverLimit = result.serverLimit ?? null
@@ -274,15 +322,20 @@ export function useDomain<T>(
       const result=await read(port,context,cursor)
       if(disposed||abort.signal.aborted||version!==readRun||
          !sameScope(context.scope,context.revision)||port!==platformPort.value)return false
-      if(result.hasMore===true&&(!result.nextAfterId||result.nextAfterId===cursor)){
-        throw new Error("A6 keyset cursor failed to advance")
-      }
-      // Page N is authorized independently; it is not an immutable snapshot.
-      // Entity action confirmations are cleared by the caller's list watcher
-      // if server authority changes; no newer Project/User is auto-selected.
-      state.items=[...state.items,...result.items]
-      state.nextAfterId=result.nextAfterId??null
-      state.hasMore=result.hasMore===true
+      if(!usable()){invalidate();return false}
+      // A keyset continuation must have an explicit stable UUIDv4 row key.
+      // Never append arbitrary generic objects, duplicate/foreign rows or an
+      // out-of-order page merely because its HTTP call returned successfully.
+      if(!keyOf)throw new Error("Missing server row identity for keyset paging")
+      if(state.revision&&result.revision&&state.revision!==result.revision)
+        throw new Error("Source page revision changed")
+      const verified=appendVerifiedKeyset(state.items,result,cursor,keyOf)
+      // Page N is authenticated independently and may have changed since N-1.
+      // Retain partial-read warnings; do not infer deletion or entitlement.
+      state.items=verified.rows
+      state.nextAfterId=verified.next
+      state.hasMore=verified.hasMore
+      state.possiblyTruncated=state.possiblyTruncated||result.possiblyTruncated===true
       state.pageSize=result.pageSize??state.pageSize
       state.status=state.items.length?"ready":"empty"
       browserTelemetry.read(resource,"ok",performance.now()-telemetryStart)
@@ -302,6 +355,20 @@ export function useDomain<T>(
   }
   async function execute(action: UiCapability, write: WriteDomain, sourceOperation: string | SourceCommandBinding | null = null): Promise<boolean> {
     const port = platformPort.value
+    if(!sourceMutationReady(action,sourceOperation)){
+      const pending=commandCoordinator.lookup(projectContext.state.user?.key??"",projectContext.selection())
+      state.actionError=pending?
+        {kind:"uncertain",code:"original_command_still_pending",message:"outcomeUncertain"}:
+        !sourceOperation||!port?.bff?.inspectOriginalCommand?
+        {kind:"unavailable",code:"original_command_status_missing",message:"serverCommandStatusRequired"}:
+        {kind:"forbidden",code:"owner_or_scope_authority_missing",message:"ownerAuthorityRequired"}
+      return false
+    }
+    if(!projectContext.can(action)&&!commandCoordinator.lookup(projectContext.state.user?.key??"",projectContext.selection())){
+      commandCoordinator.denied(action)
+      state.actionError={kind:"forbidden",code:"bff_owner_authority_required",message:"ownerAuthorityRequired"}
+      return false
+    }
     if (!usable() || !projectContext.can(action) || state.busy || state.reconciliationRequired || !port || disposed ||
         commandCoordinator.lookup(projectContext.state.user?.key ?? "", projectContext.selection())) return false
     const generation = ++writeRun
@@ -314,7 +381,7 @@ export function useDomain<T>(
     const pending = commandCoordinator.begin(principal, base.scope, action, base.decisionVersion ?? null, sourceOperation)
     if (!pending) return false
     activeWrite = pending
-    const context: CommandContext = { ...base, idempotencyKey: pending.commandId }
+    const context: CommandContext = { ...base, idempotencyKey: pending.commandId,operationUuid:pending.operationUuid }
     state.busy = true
     state.actionError = null
     state.reconciliationNotice = false
@@ -325,26 +392,53 @@ export function useDomain<T>(
         if(activeWrite===pending)activeWrite=null
         return false
       }
+      const bffConfirmed=await completeCrossOwnerEffect(port,context,pending)
+      if(!bffConfirmed){
+        commandCoordinator.uncertain(pending)
+        if(activeWrite===pending)activeWrite=null
+        state.actionError={kind:"uncertain",code:"bff_distributed_effect_unconfirmed",message:"crossOwnerOutcomeUnknown"}
+        state.reconciliationRequired=true
+        browserTelemetry.write(resource,"uncertain",performance.now()-telemetryStart)
+        return false
+      }
+      if(disposed||abort.signal.aborted||generation!==writeRun||!sameScope(base.scope,base.revision)||port!==platformPort.value){
+        commandCoordinator.uncertain(pending)
+        if(activeWrite===pending)activeWrite=null
+        return false
+      }
+      // The exact owner command receipt is not sufficient for UI success:
+      // the original affected domain must still be currently authorized.
+      const affected=resourceForAction(action)
+      if(!affected)throw new Error("Missing original effect domain")
+      await readActionDomain(port,context,affected,principal)
+      if(disposed||abort.signal.aborted||generation!==writeRun||!sameScope(base.scope,base.revision)||port!==platformPort.value){
+        commandCoordinator.uncertain(pending)
+        if(activeWrite===pending)activeWrite=null
+        return false
+      }
+      const fresh=await reload()
+      if(!fresh||disposed||abort.signal.aborted||generation!==writeRun||!sameScope(base.scope,base.revision)||port!==platformPort.value){
+        commandCoordinator.uncertain(pending)
+        if(activeWrite===pending)activeWrite=null
+        return false
+      }
       commandCoordinator.confirm(pending)
-      if (activeWrite === pending) activeWrite = null
+      if(activeWrite===pending)activeWrite=null
       browserTelemetry.write(resource,"ok",performance.now()-telemetryStart)
-      // A successful write is acknowledged independently of any subsequent read.
-      // Failed refresh remains visible in state.status/error, never a fake write failure.
-      await reload()
-      return !disposed && generation === writeRun && sameScope(base.scope, base.revision)
+      return true
     } catch (cause) {
       // The request may have reached the server even when its component was
       // unmounted, aborted or its response failed validation.
-      const known = normalizeUiError(cause, "mutation")
-      if (requiresReconciliation(known) || abort.signal.aborted) commandCoordinator.uncertain(pending)
-      else commandCoordinator.confirm(pending)
+      // A response/permission error AFTER invocation may follow an actual
+      // owner-local commit. Unknown remains locked with the ORIGINAL key.
+      commandCoordinator.uncertain(pending)
       if (activeWrite === pending) activeWrite = null
       if (!disposed && !abort.signal.aborted && generation === writeRun && sameScope(base.scope, base.revision)) {
         const normalized = normalizeUiError(cause, "mutation")
         if (!handlePermissionError(normalized, base.scope)) {
           browserTelemetry.write(resource,diagnosticOutcome(normalized),performance.now()-telemetryStart)
           state.actionError = normalized
-          state.reconciliationRequired = requiresReconciliation(normalized)
+          state.reconciliationRequired = true
         }
       }
       return false
@@ -373,13 +467,12 @@ export function useDomain<T>(
     const abort=new AbortController()
     const stop=projectContext.onTransition(()=>abort.abort())
     const off=watch(platformPort,()=>abort.abort())
+    if(entry)commandCoordinator.reconciling(entry)
     try {
       const context:QueryContext={scope,signal:abort.signal,revision,decisionVersion:verifiedDecisionVersion(scope)}
       if(entry){
-        if(!await confirmedProjectEffect(port,context,entry)){
-          state.actionError=entry.sourceOperation?
-            {kind:"uncertain",code:"command_not_confirmed",message:"commandStatusUnresolved"}:
-            {kind:"unavailable",code:"no_global_status_contract",message:"serverCommandStatusRequired"}
+        if(!await completeCrossOwnerEffect(port,context,entry)){
+          state.actionError={kind:"uncertain",code:"bff_distributed_effect_unconfirmed",message:"crossOwnerOutcomeUnknown"}
           return false
         }
         await readActionDomain(port,context,resource as CommandResource,principal)
@@ -403,7 +496,10 @@ export function useDomain<T>(
         }
       }
       return false
-    }finally{stop();off();abort.abort()}
+    }finally{
+      if(entry)commandCoordinator.unresolved(entry)
+      stop();off();abort.abort()
+    }
   }
 
   const stop = watch(() => [projectContext.state.revision, platformPort.value] as const, () => {
@@ -428,7 +524,7 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
   ))
   const stopBarrier = watchEffect(() => {
     const blocked = currentEntry.value !== null
-    const unconfirmed = currentEntry.value?.state === "reconciliation-required"
+    const unconfirmed = ["unknown","reconciling"].includes(currentEntry.value?.state??"")
     state.reconciliationRequired = blocked
     if (unconfirmed && !state.error) {
       state.error = { kind: "uncertain", code: "command_outcome_pending", message: "outcomeUncertain" }
@@ -451,8 +547,27 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
   const stopAdapter = watch(platformPort, invalidate)
   async function submit(ability: UiCapability, action: WriteDomain, sourceOperation: string | SourceCommandBinding | null = null): Promise<boolean> {
     const port = platformPort.value
+    // Never send a WRITE when the original actor/operation/owner status
+    // cannot be queried. A positive local owner HTTP is not an ACK across
+    // the selected B15 four-owner databases.
+    if(!sourceMutationReady(ability,sourceOperation)){
+      const pending=commandCoordinator.lookup(projectContext.state.user?.key??"",projectContext.selection())
+      state.error=pending?
+        {kind:"uncertain",code:"original_command_still_pending",message:"outcomeUncertain"}:
+        !sourceOperation||!port?.bff?.inspectOriginalCommand?
+        {kind:"unavailable",code:"original_command_status_missing",message:"serverCommandStatusRequired"}:
+        {kind:"forbidden",code:"owner_or_scope_authority_missing",message:"ownerAuthorityRequired"}
+      return false
+    }
     const scope = projectContext.selection()
-    if (disposed || state.busy || state.reconciliationRequired || !port || !scope || !scopes.includes(scope.kind) || !projectContext.can(ability)) return false
+    if(!projectContext.can(ability)&&!commandCoordinator.lookup(projectContext.state.user?.key??"",scope)){
+      commandCoordinator.denied(ability)
+      state.error={kind:"forbidden",code:"bff_owner_authority_required",message:"ownerAuthorityRequired"}
+      return false
+    }
+    if (disposed || state.busy || state.reconciliationRequired || !port ||
+        !groupVerifiedBffCapabilities(port)||!scope||!scopes.includes(scope.kind)||
+        !projectContext.can(ability)) return false
     const actor = projectContext.state.user?.key ?? ""
     const generation = ++nonce
     const telemetryStart=performance.now()
@@ -468,7 +583,7 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
     state.reconciliationNotice = false
     try {
       await action(port, {
-        scope,revision,signal:abort.signal,idempotencyKey:pending.commandId,
+        scope,revision,signal:abort.signal,idempotencyKey:pending.commandId,operationUuid:pending.operationUuid,
         decisionVersion:pending.decisionVersion,
       })
       if(disposed || abort.signal.aborted || nonce !== generation || !sameScope(scope,revision) || platformPort.value!==port){
@@ -476,24 +591,48 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
         if(commandInFlight===pending)commandInFlight=null
         return false
       }
+      const context:QueryContext={scope,revision,signal:abort.signal,decisionVersion:pending.decisionVersion}
+      if(!await completeCrossOwnerEffect(port,context,pending)){
+        commandCoordinator.uncertain(pending)
+        if(commandInFlight===pending)commandInFlight=null
+        state.error={kind:"uncertain",code:"bff_distributed_effect_unconfirmed",message:"crossOwnerOutcomeUnknown"}
+        state.reconciliationRequired=true
+        browserTelemetry.write(diagnosticResource,"uncertain",performance.now()-telemetryStart)
+        return false
+      }
+      if(disposed||abort.signal.aborted||nonce!==generation||!sameScope(scope,revision)||platformPort.value!==port){
+        commandCoordinator.uncertain(pending)
+        if(commandInFlight===pending)commandInFlight=null
+        return false
+      }
+      const affected=resourceForAction(ability)
+      if(!affected)throw new Error("Missing original effect domain")
+      await readActionDomain(port,{
+        scope,revision,signal:abort.signal,decisionVersion:pending.decisionVersion,
+      },affected,actor)
+      if(disposed||abort.signal.aborted||nonce!==generation||!sameScope(scope,revision)||platformPort.value!==port){
+        commandCoordinator.uncertain(pending)
+        if(commandInFlight===pending)commandInFlight=null
+        return false
+      }
+      // The UI may only report confirmed after BOTH all owner ACKs and
+      // an authenticated read of the very domain the operation changed.
       commandCoordinator.confirm(pending)
       commandInFlight = null
       browserTelemetry.write(diagnosticResource,"ok",performance.now()-telemetryStart)
       return true
     } catch (cause) {
       const normalized = normalizeUiError(cause, "mutation")
-      if (requiresReconciliation(normalized) || abort.signal.aborted || disposed || nonce !== generation) {
-        commandCoordinator.uncertain(pending)
-      } else {
-        commandCoordinator.confirm(pending)
-      }
+      // Treat every post-invocation failure as uncertain. A server 403/422
+      // might be a post-commit permission/owner acknowledgement failure.
+      commandCoordinator.uncertain(pending)
       if (commandInFlight === pending) commandInFlight = null
       if (!disposed && !abort.signal.aborted && nonce === generation && sameScope(scope, revision) && platformPort.value === port) {
         const normalized = normalizeUiError(cause, "mutation")
         if (!handlePermissionError(normalized, scope)) {
           browserTelemetry.write(diagnosticResource,diagnosticOutcome(normalized),performance.now()-telemetryStart)
           state.error = normalized
-          state.reconciliationRequired = requiresReconciliation(normalized)
+          state.reconciliationRequired = true
         }
       }
       return false
@@ -521,16 +660,12 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
     const abort=new AbortController()
     const off=projectContext.onTransition(()=>abort.abort())
     const unwatch=watch(platformPort,()=>abort.abort())
+    commandCoordinator.reconciling(entry)
     try {
-      // A5 Project command status is authoritative for ORIGINAL actor, scope,
-      // operation and Idempotency-Key. A cached GET or a server `not_found`
-      // never proves absence of an external side effect.
-      if(!await confirmedProjectEffect(port,{
-        scope:context,signal:abort.signal,revision,decisionVersion:verifiedDecisionVersion(context),
-      },entry)){
-        state.error=entry.sourceOperation?
-          {kind:"uncertain",code:"command_not_confirmed",message:"commandStatusUnresolved"}:
-          {kind:"unavailable",code:"no_global_status_contract",message:"serverCommandStatusRequired"}
+      const currentContext:QueryContext={scope:context,signal:abort.signal,revision,
+        decisionVersion:verifiedDecisionVersion(context)}
+      if(!await completeCrossOwnerEffect(port,currentContext,entry)){
+        state.error={kind:"uncertain",code:"bff_distributed_effect_unconfirmed",message:"crossOwnerOutcomeUnknown"}
         return false
       }
       await readActionDomain(port,{
@@ -557,6 +692,7 @@ export function useCommand(scopes: ScopeSelection["kind"][] = ["account", "team"
       return false
     } finally {
       off()
+      commandCoordinator.unresolved(entry)
       unwatch()
       abort.abort()
     }

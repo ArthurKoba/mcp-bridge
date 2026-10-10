@@ -1,0 +1,43 @@
+# Private Platform Control release: owns only briareus_platform logical PostgreSQL DB.
+# Independent migration runs in normal ASGI owner lifespan, not a sidecar.
+services:
+  briareus-platform:
+    build:
+      context: ../..
+      dockerfile: deploy/platform/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      TZ: "${TZ:-UTC}"
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-}"
+      OTLP_BEARER_TOKEN: "${OTLP_BEARER_TOKEN:-}"
+      SERVICE_NAMESPACE: "${SERVICE_NAMESPACE:-briareus}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-development}"
+      OTEL_SERVICE_NAME: "platform"
+      POSTGRES_HOST: "briareus-postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "briareus_platform"
+      POSTGRES_USER: "${CONTROL_POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${CONTROL_POSTGRES_PASSWORD:?}"
+      MIGRATION_POSTGRES_USER: "${CONTROL_MIGRATION_POSTGRES_USER:?}"
+      MIGRATION_POSTGRES_PASSWORD: "${CONTROL_MIGRATION_POSTGRES_PASSWORD:?}"
+    expose:
+      - "8000"
+    networks:
+      briareus:
+        aliases: ["briareus-platform"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "2", "http://127.0.0.1:8000/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+      start_period: 180s
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+networks:
+  briareus:
+    external: true
+    name: briareus-net

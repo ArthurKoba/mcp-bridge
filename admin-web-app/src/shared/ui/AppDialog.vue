@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   title: string
   width?: string
   closeLabel?: string
+  descriptionId?: string
 }>(), {
   width: "760px",
 })
@@ -28,8 +29,14 @@ watch(() => props.open, async (open) => {
   focusBeforeDialog = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
   if (!props.open) return
-  const first = panel.value?.querySelector<HTMLElement>("[autofocus], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)")
-  ;(first ?? panel.value)?.focus()
+  // Prefer the intentionally focused destructive-typed input over the
+  // earlier header close button; native autofocus alone is unreliable when
+  // Vue Teleport mounts the dialog in a post-flush render.
+  const preferred=panel.value?.querySelector<HTMLElement>("[autofocus]:not(:disabled)")
+  const first=panel.value?.querySelector<HTMLElement>(
+    "input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)",
+  )
+  ;(preferred??first??panel.value)?.focus()
 }, { flush: "post", immediate: true })
 onBeforeUnmount(restoreFocus)
 
@@ -57,12 +64,13 @@ function handleKeydown(event: KeyboardEvent): void {
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
+        :aria-describedby="descriptionId"
         tabindex="-1"
         @keydown="handleKeydown"
       >
         <header class="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 :id="titleId" class="text-base font-semibold tracking-tight">{{ title }}</h2>
-          <button type="button" class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" :aria-label="closeText()" @click="emit('close')">
+          <button type="button" class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2" :aria-label="closeText()" @click="emit('close')">
             <X class="size-4" />
           </button>
         </header>

@@ -1,0 +1,104 @@
+{
+  "schema": "briareus-domain-databases-v1",
+  "physical_postgres_dns": "briareus-postgres",
+  "network": "briareus-net",
+  "legacy_database_do_not_migrate": "briareus_dev",
+  "provisioning_status": "source_only_owner_approval_required",
+  "initial": [
+    {
+      "owner": "identity",
+      "module": "identity",
+      "database": "briareus_identity",
+      "role_env": "IDENTITY_POSTGRES_USER",
+      "secret_env": "IDENTITY_POSTGRES_PASSWORD",
+      "runtime_role": "briareus_identity_runtime",
+      "migration_role": "briareus_identity_migrator",
+      "migration_role_env": "IDENTITY_MIGRATION_POSTGRES_USER",
+      "migration_secret_env": "IDENTITY_MIGRATION_POSTGRES_PASSWORD",
+      "runtime_ddl_permitted": false,
+      "migration_role_ddl_only_own_db": true,
+      "runtime_role_ddl_allowed": false,
+      "migration_role_superuser_allowed": false,
+      "migration_role_createdb_allowed": false,
+      "migration_role_createrole_allowed": false,
+      "migration_role_cross_database_grants_allowed": false
+    },
+    {
+      "owner": "access",
+      "module": "authorization",
+      "database": "briareus_access",
+      "role_env": "ACCESS_POSTGRES_USER",
+      "secret_env": "ACCESS_POSTGRES_PASSWORD",
+      "runtime_role": "briareus_access_runtime",
+      "migration_role": "briareus_access_migrator",
+      "migration_role_env": "ACCESS_MIGRATION_POSTGRES_USER",
+      "migration_secret_env": "ACCESS_MIGRATION_POSTGRES_PASSWORD",
+      "runtime_ddl_permitted": false,
+      "migration_role_ddl_only_own_db": true,
+      "runtime_role_ddl_allowed": false,
+      "migration_role_superuser_allowed": false,
+      "migration_role_createdb_allowed": false,
+      "migration_role_createrole_allowed": false,
+      "migration_role_cross_database_grants_allowed": false
+    },
+    {
+      "owner": "platform",
+      "module": "platform",
+      "database": "briareus_platform",
+      "role_env": "CONTROL_POSTGRES_USER",
+      "secret_env": "CONTROL_POSTGRES_PASSWORD",
+      "runtime_role": "briareus_platform_runtime",
+      "migration_role": "briareus_platform_migrator",
+      "migration_role_env": "CONTROL_MIGRATION_POSTGRES_USER",
+      "migration_secret_env": "CONTROL_MIGRATION_POSTGRES_PASSWORD",
+      "runtime_ddl_permitted": false,
+      "migration_role_ddl_only_own_db": true,
+      "runtime_role_ddl_allowed": false,
+      "migration_role_superuser_allowed": false,
+      "migration_role_createdb_allowed": false,
+      "migration_role_createrole_allowed": false,
+      "migration_role_cross_database_grants_allowed": false
+    },
+    {
+      "owner": "resources",
+      "module": "resources",
+      "database": "briareus_resources",
+      "role_env": "CATALOG_POSTGRES_USER",
+      "secret_env": "CATALOG_POSTGRES_PASSWORD",
+      "runtime_role": "briareus_resources_runtime",
+      "migration_role": "briareus_resources_migrator",
+      "migration_role_env": "CATALOG_MIGRATION_POSTGRES_USER",
+      "migration_secret_env": "CATALOG_MIGRATION_POSTGRES_PASSWORD",
+      "runtime_ddl_permitted": false,
+      "migration_role_ddl_only_own_db": true,
+      "runtime_role_ddl_allowed": false,
+      "migration_role_superuser_allowed": false,
+      "migration_role_createdb_allowed": false,
+      "migration_role_createrole_allowed": false,
+      "migration_role_cross_database_grants_allowed": false
+    }
+  ],
+  "deferred_until_feature_activation": [
+    {
+      "owner": "files",
+      "database": "briareus_files"
+    },
+    {
+      "owner": "runtime",
+      "database": "briareus_runtime"
+    },
+    {
+      "owner": "reverse",
+      "database": "briareus_reverse"
+    }
+  ],
+  "immutable_guards": {
+    "no_live_creation_approved": true,
+    "no_global_authorization_migrator": true,
+    "no_manual_one_shot_schema_init": true,
+    "no_existing_volume_or_network_mutation": true,
+    "no_public_C2_until_trust_review": true,
+    "no_bulk_MCP_events_in_oltp": true
+  },
+  "role_model": "separate_owner_scoped_runtime_and_migration_principals_required"
+}

@@ -158,6 +158,50 @@ class ProjectInvocation:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectOwnerFence:
+    """Opaque, owner-issued version triple; NOT a cross-DB SQL transaction.
+
+    Each independently trusted source must recheck Identity activity,
+    Control Project/Team membership and Access Session revocation at the
+    actual effect boundary. Projections/events are never these proofs.
+    """
+
+    identity_version: int
+    identity_revocation_epoch: int
+    identity_authority_epoch: UUID
+    control_state_version: int
+    control_revision: str
+    control_scope_epoch: int
+    control_authority_epoch: UUID
+    access_session_version: int
+    access_revocation_epoch: int
+    access_authority_epoch: UUID
+
+    def valid(self) -> bool:
+        return (
+            type(self.identity_version) is int
+            and self.identity_version >= 1
+            and type(self.identity_revocation_epoch) is int
+            and self.identity_revocation_epoch >= 0
+            and isinstance(self.identity_authority_epoch, UUID)
+            and self.identity_authority_epoch.version == 4
+            and type(self.control_state_version) is int
+            and self.control_state_version >= 1
+            and valid_project_revision(self.control_revision)
+            and type(self.control_scope_epoch) is int
+            and self.control_scope_epoch >= 0
+            and isinstance(self.control_authority_epoch, UUID)
+            and self.control_authority_epoch.version == 4
+            and type(self.access_session_version) is int
+            and self.access_session_version >= 1
+            and type(self.access_revocation_epoch) is int
+            and self.access_revocation_epoch >= 0
+            and isinstance(self.access_authority_epoch, UUID)
+            and self.access_authority_epoch.version == 4
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectPermit:
     """Internal result issued ONLY by an authenticated backend authorization port."""
 
@@ -170,6 +214,7 @@ class ProjectPermit:
     project_access_revision: str | None = None
     project_owner_scope: Literal["team", "project"] | None = None
     project_owner_id: UUID | None = None
+    owner_fence: ProjectOwnerFence | None = None
 
 
 class ProjectAccessPort(Protocol):
@@ -215,6 +260,13 @@ class ProjectRuntimeAuthority:
             or not isinstance(permit.actor_id, UUID)
             or type(permit.decision_version) is not int
             or permit.decision_version < 1
+            # The previous single Authorization-global snapshot does not
+            # authorize any new split-owner Project operation. All three
+            # authoritative stores must independently attest source versions.
+            or not isinstance(permit.owner_fence, ProjectOwnerFence)
+            or not permit.owner_fence.valid()
+            or permit.decision_version != permit.owner_fence.access_session_version
+            or permit.project_access_revision != permit.owner_fence.control_revision
             or (
                 permit.project_access_revision is not None
                 and not valid_project_revision(permit.project_access_revision)

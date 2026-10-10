@@ -10,8 +10,9 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from sqlalchemy import MetaData, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
@@ -37,8 +38,8 @@ class PlatformDatabaseSettings(ProcessSettings):
 
     postgres_host: str = Field("briareus-postgres", validation_alias="POSTGRES_HOST")
     postgres_port: int = Field(5432, ge=1, le=65535, validation_alias="POSTGRES_PORT")
-    postgres_db: str = Field("briareus_dev", validation_alias="POSTGRES_DB")
-    postgres_user: str = Field("briareus", validation_alias="POSTGRES_USER")
+    postgres_db: str = Field(validation_alias="POSTGRES_DB")
+    postgres_user: str = Field(validation_alias="POSTGRES_USER")
     postgres_password: SecretStr = Field(validation_alias="POSTGRES_PASSWORD")
 
     @field_validator("postgres_host")
@@ -59,12 +60,7 @@ class PlatformDatabaseSettings(ProcessSettings):
     @classmethod
     def _password(cls, value: SecretStr) -> SecretStr:
         raw = value.get_secret_value()
-        if (
-            not raw
-            or raw.isspace()
-            or raw.startswith(("{{", "${"))
-            or len(raw) > 8192
-        ):
+        if not raw or raw.isspace() or raw.startswith(("{{", "${")) or len(raw) > 8192:
             raise ValueError("POSTGRES_PASSWORD must resolve to a nonempty secret")
         return value
 
@@ -83,6 +79,69 @@ class PlatformDatabaseSettings(ProcessSettings):
 
 class PlatformBase(DeclarativeBase):
     metadata = MetaData()
+
+
+# Separate SQLAlchemy registries: models owned by different logical databases
+# must never share one MetaData or rely on a cross-database foreign key.
+class IdentityBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class AccessBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class ControlBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class CatalogBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class FilesBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class RuntimeBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class ReverseBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+class IngestBase(DeclarativeBase):
+    metadata = MetaData()
+
+
+OwnerName = Literal[
+    "identity", "access", "platform", "resources", "files", "runtime", "reverse", "ingest"
+]
+OWNER_DB_NAMES: dict[OwnerName, str] = {
+    "identity": "briareus_identity",
+    "access": "briareus_access",
+    "platform": "briareus_platform",
+    "resources": "briareus_resources",
+    "files": "briareus_files",
+    "runtime": "briareus_runtime",
+    "reverse": "briareus_reverse",
+    "ingest": "briareus_ingest",
+}
+
+
+class OwnerDatabaseSettings(PlatformDatabaseSettings):
+    """Single-owner SQL connection; never accepts an obsolete shared database."""
+
+    owner: OwnerName
+
+    @model_validator(mode="after")
+    def _owner_database(self) -> OwnerDatabaseSettings:
+        if self.postgres_db != OWNER_DB_NAMES[self.owner]:
+            raise ValueError("POSTGRES_DB does not match this durable owner's logical database")
+        if self.postgres_user in {"briareus", "postgres", "root"}:
+            raise ValueError("POSTGRES_USER cannot be the shared/platform/admin principal")
+        return self
 
 
 class PlatformDatabase:

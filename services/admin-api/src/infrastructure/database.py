@@ -10,9 +10,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    inspect,
 )
-from sqlalchemy.engine import URL, Connection
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -309,33 +308,8 @@ class DatabaseManager:
         )
 
     async def ensure_schema(self) -> bool:
-        async with self.engine.begin() as connection:
-            return await connection.run_sync(_ensure_schema_sync)
+        """Retired. Only independently reviewed owner Alembic may create DDL."""
+        raise RuntimeError("legacy schema initializer disabled; use reviewed owner migrations")
 
     async def dispose(self) -> None:
         await self.engine.dispose()
-
-
-def _ensure_schema_sync(connection: Connection) -> bool:
-    """Create a fresh PostgreSQL schema and reject partial/incompatible schemas."""
-
-    before = inspect(connection)
-    existing_tables = set(before.get_table_names())
-    expected_tables = set(Base.metadata.tables)
-    created_tables = expected_tables - existing_tables
-
-    Base.metadata.create_all(connection)
-
-    inspector = inspect(connection)
-    for table_name, table in Base.metadata.tables.items():
-        actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
-        expected_columns = {column.name for column in table.columns}
-        missing_columns = expected_columns - actual_columns
-        if missing_columns:
-            missing = ", ".join(sorted(missing_columns))
-            raise RuntimeError(
-                f"admin-api database migration required for {table_name}: "
-                f"missing columns: {missing}"
-            )
-
-    return bool(created_tables)

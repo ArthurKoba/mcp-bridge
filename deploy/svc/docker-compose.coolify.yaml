@@ -2,13 +2,9 @@ x-watch-path-coolify:
   - "deploy/svc/Dockerfile"
   - "deploy/svc/docker-compose.yaml"
   - "deploy/svc/docker-compose.coolify.yaml"
-  - "pyproject.toml"
-  - "uv.lock"
-  - "services/common/**"
-  - "services/modules/__init__.py"
-  - "services/modules/project_runtime/**"
-  - "services/modules/github/**"
-  - "services/modules/gitlab/**"
+  - "deploy/svc/Dockerfile.dockerignore"
+  - "deploy/svc/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
 
 services:
   briareus-svc:

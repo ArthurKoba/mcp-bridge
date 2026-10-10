@@ -13,7 +13,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     String,
@@ -24,22 +23,18 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import CatalogBase
 
 
 class ResourceOwnerColumns:
-    owner_team_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("teams.teams.id", ondelete="RESTRICT"), nullable=True
-    )
-    owner_project_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT"), nullable=True
-    )
+    owner_team_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    owner_project_id: Mapped[UUID | None] = mapped_column(nullable=True)
 
 
 OWNER_XOR = "(owner_team_id IS NOT NULL) <> (owner_project_id IS NOT NULL)"
 
 
-class IntegrationRow(ResourceOwnerColumns, PlatformBase):
+class IntegrationRow(ResourceOwnerColumns, CatalogBase):
     __tablename__ = "integrations"
     __table_args__ = (
         CheckConstraint(OWNER_XOR, name="ck_integration_owner_xor"),
@@ -78,7 +73,7 @@ class IntegrationRow(ResourceOwnerColumns, PlatformBase):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class CredentialLeaseRow(PlatformBase):
+class CredentialLeaseRow(CatalogBase):
     """DB-enforced single-use, version-fenced handle. NEVER a bearer for end users."""
 
     __tablename__ = "credential_leases"
@@ -91,7 +86,10 @@ class CredentialLeaseRow(PlatformBase):
             name="ck_lease_service_operation_owner",
         ),
         UniqueConstraint(
-            "project_id", "service_id", "service_instance_uuid", "operation_uuid",
+            "project_id",
+            "service_id",
+            "service_instance_uuid",
+            "operation_uuid",
             name="uq_credential_service_operation",
         ),
         Index("ix_credential_lease_expiry", "expires_at"),
@@ -99,13 +97,9 @@ class CredentialLeaseRow(PlatformBase):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("identity.users.id", ondelete="RESTRICT"))
-    session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
+    user_id: Mapped[UUID] = mapped_column()
+    session_uuid: Mapped[UUID] = mapped_column()
     resource_id: Mapped[UUID] = mapped_column(nullable=False)
     kind: Mapped[str] = mapped_column(String(16))
     owner_scope: Mapped[str] = mapped_column(String(16))
@@ -127,7 +121,7 @@ class CredentialLeaseRow(PlatformBase):
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class VariableRow(ResourceOwnerColumns, PlatformBase):
+class VariableRow(ResourceOwnerColumns, CatalogBase):
     __tablename__ = "variables"
     __table_args__ = (
         CheckConstraint(OWNER_XOR, name="ck_variable_owner_xor"),

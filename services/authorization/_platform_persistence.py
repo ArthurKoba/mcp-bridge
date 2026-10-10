@@ -19,10 +19,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import AccessBase, CatalogBase
 
 
-class IdempotencyRow(PlatformBase):
+class IdempotencyRow(AccessBase):
     __tablename__ = "commands"
     __table_args__ = (
         CheckConstraint("status IN ('pending','completed')", name="ck_idempotency_status"),
@@ -34,7 +34,7 @@ class IdempotencyRow(PlatformBase):
             name="uq_authorization_command_idempotency",
         ),
         Index("ix_authorization_command_expiry", "expires_at"),
-        {"schema": "authorization"},
+        {"schema": "access"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     actor_scope: Mapped[str] = mapped_column(String(64))
@@ -51,11 +51,11 @@ class IdempotencyRow(PlatformBase):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class SecurityAuditRow(PlatformBase):
+class SecurityAuditRow(AccessBase):
     __tablename__ = "audit"
     __table_args__ = (
         Index("ix_authorization_audit_actor_time", "actor_id", "created_at"),
-        {"schema": "authorization"},
+        {"schema": "access"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     actor_id: Mapped[UUID | None] = mapped_column()
@@ -68,11 +68,11 @@ class SecurityAuditRow(PlatformBase):
     )
 
 
-class OutboxRow(PlatformBase):
+class OutboxRow(AccessBase):
     __tablename__ = "outbox"
     __table_args__ = (
         Index("ix_auth_outbox_pending", "published_at", "created_at"),
-        {"schema": "authorization"},
+        {"schema": "access"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     event_name: Mapped[str] = mapped_column(String(128))
@@ -86,7 +86,7 @@ class OutboxRow(PlatformBase):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class ExternalOperationRow(PlatformBase):
+class ExternalOperationRow(CatalogBase):
     """One irreversible provider effect per explicit operation identity.
 
     A recorded 'dispatched' or 'unknown' outcome MUST NOT auto-execute again.
@@ -122,16 +122,12 @@ class ExternalOperationRow(PlatformBase):
             unique=True,
             postgresql_where=text("status IN ('dispatched','unknown')"),
         ),
-        {"schema": "authorization"},
+        {"schema": "resources"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    actor_id: Mapped[UUID] = mapped_column(ForeignKey("identity.users.id", ondelete="RESTRICT"))
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
-    session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
+    actor_id: Mapped[UUID] = mapped_column()
+    project_id: Mapped[UUID] = mapped_column()
+    session_uuid: Mapped[UUID] = mapped_column()
     resource_id: Mapped[UUID] = mapped_column(
         ForeignKey("resources.integrations.id", ondelete="RESTRICT")
     )

@@ -47,9 +47,8 @@ def read_watch_paths(path: Path) -> list[str]:
         if (
             not isinstance(item, str)
             or not ALLOWED_PATH.fullmatch(item)
-            or item.startswith("!")
+            or item.startswith(("!", "/"))
             or ".." in item.split("/")
-            or item.startswith("/")
             or len(item) > 255
         ):
             raise SyncError("invalid watch path value")

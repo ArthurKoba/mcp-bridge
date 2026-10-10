@@ -1,5 +1,6 @@
 import { reactive } from "vue"
-import type { ScopeSelection, UiCapability, SourceCommandBinding, SourceCommandTarget } from "@/features/platform/model/contracts"
+import { A11_TEAM_STATUS_OPERATIONS } from "@/features/platform/api/a11-owner-bff-source"
+import { canonicalUuid4, type ScopeSelection, type UiCapability, type SourceCommandBinding, type SourceCommandTarget } from "@/features/platform/model/contracts"
 
 /**
  * In-memory command outcome fence shared across Project pages in ONE tab.
@@ -27,12 +28,12 @@ export function resourceForAction(action: UiCapability): CommandResource | null 
   return null
 }
 
-/** Exact A5 Project idempotency operation vocabulary, not a UI label. */
+/** Narrow historical source-selector vocabulary, NOT proof that A11 accepts a
+ * public mutation. Backend A12 must independently approve the actual wire. */
 const PROJECT_COMMANDS=new Set(["agent.create","session.open","project.transfer_owner","project.admin_reassign"])
 const RESOURCE_CREATES=new Set(["integration.create","variable.create"])
-/** A9 accepts normalized status operations and checks the original GLOBAL
- * dedupe key internally as `team.member.*:{teamUUID}`. */
-const TEAM_MEMBER_ACTIONS=new Set(["team.member.add","team.member.remove","team.transfer_owner"])
+/** Accepted PRIVATE A11 Team vocabulary, never an owner grant on its own. */
+const TEAM_MEMBER_ACTIONS=new Set<string>(A11_TEAM_STATUS_OPERATIONS)
 const RESOURCE_EDITS=new Set(["integration.update","integration.rotate","integration.revoke",
  "variable.update","variable.rotate","variable.revoke"])
 const scopedCommand=/^(?:agent\.(?:rename|state)|session\.(?:elevation|resolve|revoke)):(?:[0-9a-f]{8}-){1}[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -45,7 +46,7 @@ function checkedSourceBinding(scope:ScopeSelection,requested:string|SourceComman
     scope.kind==="project"?{operation:requested,target:{kind:"project",id:scope.projectId}}:
     {operation:requested,target:{kind:"project",id:""}}:requested
   const {operation,target}=selected
-  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target.id))return false
+  if(!canonicalUuid4(target.id))return false
   if(target.kind==="project")return (
     (scope.kind==="project"&&scope.projectId===target.id&&acceptedProjectOperation(operation))||
     (scope.kind==="operator"&&["project.admin_reassign","project.transfer_owner"].includes(operation))
@@ -59,16 +60,23 @@ function checkedSourceBinding(scope:ScopeSelection,requested:string|SourceComman
   if(target.kind==="resource"){
     if(!RESOURCE_EDITS.has(operation)||!(scope.kind==="team"||scope.kind==="project"))return false
     const owner=target.owner
-    if(owner.kind==="team")return owner.teamId!==""?selected:false
+    if(owner.kind==="team")return canonicalUuid4(owner.teamId)&&
+      (scope.kind!=="team"||scope.teamId===owner.teamId)?selected:false
     return scope.kind==="project"&&owner.projectId===scope.projectId?selected:false
   }
   return false
 }
-type CommandState = "pending" | "reconciliation-required"
+export type CommandState = "pending" | "unknown" | "reconciling"
+export type PublicCommandPhase = "idle" | "pending" | "unknown" | "reconciling" | "confirmed" | "denied"
 export interface PendingCommand {
+  /** User-selected original scope, retained memory-only to allow an explicit
+   * return to the correct effect-domain page after navigation. */
+  readonly originalScope:ScopeSelection
   readonly scopeKey: string
   readonly action: UiCapability
   readonly commandId: string
+  /** Source A11 Operation-UUID header and immutable owner-local command ID. */
+  readonly operationUuid:string
   readonly decisionVersion: string | null
   /** Exact immutable A5 idempotency operation, never derived from UI label. */
   readonly sourceOperation: string | null
@@ -76,6 +84,16 @@ export interface PendingCommand {
   readonly state: CommandState
 }
 const pending = reactive(new Map<string, PendingCommand>())
+/** Only a controlled action CATEGORY is exposed. Never the original
+ * idempotency key, User/Team/Project ID, secret or raw backend response. */
+const activity=reactive({phase:"idle" as PublicCommandPhase, action:null as UiCapability|null})
+function recordPhase(phase:PublicCommandPhase,action:UiCapability):void {
+  activity.phase=phase
+  activity.action=action
+}
+function denied(action:UiCapability):void {
+  if(!pending.size)recordPhase("denied",action)
+}
 function scopeKey(principal: string, scope: ScopeSelection): string {
   switch (scope.kind) {
     case "team": return `${principal}:team:${scope.teamId}`
@@ -96,6 +114,13 @@ function lookup(principal: string, scope: ScopeSelection | null): PendingCommand
   }
   return null
 }
+/** Pure original-command status identity check. Presence of a selector NEVER
+ * creates an API or grants User privileges. No global unsupported status
+ * operation is allowed to be optimistically written. */
+function supportedSourceBinding(scope:ScopeSelection,selector:string|SourceCommandBinding|null):boolean {
+  const binding=checkedSourceBinding(scope,selector)
+  return binding!==null&&binding!==false
+}
 function begin(principal: string, scope: ScopeSelection, action: UiCapability, decisionVersion: string | null, selector: string | SourceCommandBinding | null = null): PendingCommand | null {
   if (!principal) return null
   const binding=checkedSourceBinding(scope,selector)
@@ -105,34 +130,91 @@ function begin(principal: string, scope: ScopeSelection, action: UiCapability, d
   // dialog or route remount must never mint a fresh idempotency key for it.
   if (lookup(principal, scope)) return null
   const entry: PendingCommand = {
-    scopeKey: key, action, commandId: crypto.randomUUID(),
+    scopeKey: key,originalScope:{...scope}, action, commandId: crypto.randomUUID(),
+    operationUuid:crypto.randomUUID(),
     decisionVersion,sourceOperation:binding?.operation??null,
     sourceTarget:binding?.target??null,state: "pending",
   }
   pending.set(key, entry)
+  recordPhase("pending",action)
   return entry
 }
 function confirm(entry: PendingCommand): void {
-  if (pending.get(entry.scopeKey)?.commandId === entry.commandId) pending.delete(entry.scopeKey)
+  if (pending.get(entry.scopeKey)?.commandId === entry.commandId){
+    pending.delete(entry.scopeKey)
+    recordPhase("confirmed",entry.action)
+  }
 }
 function uncertain(entry: PendingCommand): void {
   if (pending.get(entry.scopeKey)?.commandId === entry.commandId) {
-    pending.set(entry.scopeKey, { ...entry, state: "reconciliation-required" })
+    pending.set(entry.scopeKey, { ...entry, state: "unknown" })
+    recordPhase("unknown",entry.action)
+  }
+}
+function reconciling(entry:PendingCommand):boolean {
+  const current=pending.get(entry.scopeKey)
+  if(!current||current.commandId!==entry.commandId||current.state!=="unknown")return false
+  pending.set(entry.scopeKey,{...current,state:"reconciling"})
+  recordPhase("reconciling",entry.action)
+  return true
+}
+function unresolved(entry:PendingCommand):void {
+  const current=pending.get(entry.scopeKey)
+  if(current?.commandId===entry.commandId&&current.state==="reconciling"){
+    pending.set(entry.scopeKey,{...current,state:"unknown"})
+    recordPhase("unknown",entry.action)
   }
 }
 function reconcile(principal: string, scope: ScopeSelection, entry: PendingCommand, readResource: CommandResource): boolean {
   const key = scopeKey(principal, scope)
   if (key !== entry.scopeKey || pending.get(key)?.commandId !== entry.commandId ||
       resourceForAction(entry.action) !== readResource) return false
-  if (pending.get(key)?.state !== "reconciliation-required") return false
+  if (!["unknown","reconciling"].includes(pending.get(key)?.state??"")) return false
   pending.delete(key)
+  recordPhase("confirmed",entry.action)
   return true
 }
 /** Never inspect A5 command status using an entry from another actor/scope. */
+/** Never disclose the key/UUID in the navigation UI; the original scope
+ * is only read for the SAME authenticated actor and only for navigation.
+ * This does NOT bypass Project/Team owner readiness or server grants. */
+function originalScope(principal:string,selected:ScopeSelection|null):ScopeSelection|null {
+  const entry=lookup(principal,selected)
+  if(!entry||!entry.scopeKey.startsWith(`${principal}:`))return null
+  return {...entry.originalScope}
+}
+function originalResource(principal:string,selected:ScopeSelection|null):CommandResource|null {
+  const entry=lookup(principal,selected)
+  return entry?resourceForAction(entry.action):null
+}
 function matches(entry:PendingCommand,principal:string,scope:ScopeSelection):boolean {
   return Boolean(principal&&entry.scopeKey===scopeKey(principal,scope))
 }
 /** Forget opaque identity references only when account authentication ends. */
-function clearAll(): void { pending.clear() }
+function retainOnlyActor(actor:string):void {
+  for(const [key] of pending){if(!actor||!key.startsWith(`${actor}:`))pending.delete(key)}
+  const original=pending.values().next().value
+  if(original){
+    activity.phase=original.state
+    activity.action=original.action
+  }else{
+    activity.phase="idle"
+    activity.action=null
+  }
+}
+/** Completed or pre-flight denied notice is locally dismissible, but an
+ * unresolved original command is NEVER discarded by dismissing a banner. */
+function dismissNotice():void {
+  if(pending.size)return
+  activity.phase="idle"
+  activity.action=null
+}
+function clearAll(): void {
+  pending.clear()
+  activity.phase="idle"
+  activity.action=null
+}
 
-export const commandCoordinator = { begin, lookup, confirm, uncertain, reconcile, matches, clearAll }
+export const commandCoordinator = { begin, lookup, confirm, uncertain, reconciling, unresolved,
+  reconcile, matches, clearAll, retainOnlyActor, denied, activity, supportedSourceBinding,
+  originalScope, originalResource, dismissNotice }

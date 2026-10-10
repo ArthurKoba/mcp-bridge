@@ -1,73 +1,120 @@
-# Briareus deployment source — module-first layout
+# Briareus: развёртывание и эксплуатация
 
-Status: Git-backed deployment source. Changes to live container identities require independent rollout review and runtime validation. Target Coolify account/server: `koba` / `tambov`. Legacy `mcp-bridge` and `ghidra-mcp` are outside this package and must remain untouched.
+**Единственная актуальная инструкция для оператора.** Исходники: `ArthurKoba/briareus`, модульные деплой-пакеты: `deploy/<module>/`. Целевая среда: Coolify, проект `briareus`, окружение `development`, сервер `tambov`, независимая общая Docker-сеть `briareus-net`. Сведения об установленной версии Coolify, реальных credential/volumes и разрешённых действиях проверять непосредственно перед любым изменением; наличие Compose в Git само по себе не даёт права применять его к серверу.
 
-## Layout
+**Главное ограничение (2026-10-10): живой деплой изменений архитектуры данных НЕ разрешён.** Существующие `External Services` (PostgreSQL + Valkey), `Admin UI` и `Admin API` остаются действующими. Не создавать, не запускать `Authorization`, не выполнять старый общий `0001_briareus_baseline` → `0002_browser_telemetry` Alembic, не переименовывать, не удалять и не пересоздавать существующие volumes, DB, роли и сеть. Авторизация C1-B2/C2, выполнение MCP/Files/OS и новая независимая схема хранения ждут отдельной технической и операторской приёмки. Эта инструкция описывает **планируемое source/staging-состояние**; оно может ещё не совпадать с опубликованным `main` или Coolify.
 
-Each independently deployable functional unit owns one directory directly under `deploy/`:
+## 1. Модуль, владелец данных и release
 
-- `deploy/data/` — grouped PostgreSQL + Valkey vendor dependency release.
-- `deploy/authorization/`
-- `deploy/gateway/`
-- `deploy/admin-api/`
-- `deploy/admin-ui/`
-- `deploy/files/`
-- `deploy/terminal/`
-- `deploy/web/`
-- `deploy/svc/` — GitHub + GitLab in one release unit.
-- `deploy/infrastructure/` — Coolify/SigNoz provider runtime.
-- `deploy/reverse/` — Analysis/Reverse domain; Ghidra executor remains a future inner runtime decision, not a separate Coolify Application by default.
+Модуль/DDD-домен, Coolify Application, контейнер, worker, логическая PostgreSQL-база и физический PostgreSQL-инстанс — разные понятия. Несколько доменов могут совместно использовать один Postgres-процесс, но **самостоятельные владельцы постоянных данных обязаны иметь разные логические базы, роли, Alembic-ревизии, миграционные блокировки, lifecycle и API**. Не создавать БД для stateless Gateway/Web. Не создавать универсальный Core/Schema Init/migrator, владеющий чужим DDL.
 
-Every module owns its `Dockerfile`, portable `docker-compose.yaml`, and `docker-compose.coolify.yaml`. Data has only two long-running vendor services. Schema migrations belong to normal Authorization startup after accepted A10 source. Global desired-state/bootstrap/review files live only at `deploy/`: `APPLICATIONS.json`, `bootstrap_coolify.py`, `sync_watch_paths_coolify.py`, `WATCH_PATHS.md`, `ENVIRONMENT.md`, `MIGRATION_MAP.md`, `FANIN.json`, `COOLIFY_CAPABILITIES.md`, `PUBLICATION.md`, `BOOTSTRAP.md`, `ACCEPTANCE.md`, `verify_deploy_static.py`, and `SHA256SUMS`.
+| Модуль/release | Данные и назначение | Target DB / режим |
+| --- | --- | --- |
+| `data` / `External Services` | PostgreSQL 18 + Valkey, два vendor-контейнера в одном Coolify App | Одна физическая PostgreSQL, несколько отдельных логических БД; не владеет DDL доменов |
+| `identity` / `Identity` | пользователи, учётные данные, первый superuser, активность | `briareus_identity`, собственная миграция |
+| `authorization` / `Authorization` | grants, AgentSession, revocations, сервисные ключи | `briareus_access`, **только свои** миграции |
+| `platform` / `Platform Control` | Teams, Projects, Agents, membership и версии контроля доступа | `briareus_platform`, собственная миграция |
+| `resources` / `Resource Catalog` | MCP/providеr интеграции, переменные, credential custody, операции | `briareus_resources`, собственная миграция |
+| `admin-api` / `Admin API` | BFF/типизированная агрегация API, нет отдельной бизнес-БД | Доступ через подписанные порты владельцев, не прямые SQL-таблицы других доменов |
+| `admin-ui` / `Admin UI` | браузерный Vue-клиент | Без БД и server-side OTLP bearer |
+| `gateway` / `Gateway` | аутентифицированный MCP ingress | Без собственной БД |
+| `files`, `terminal`, `web`, `svc`, `infrastructure`, `reverse` | доменные MCP/worker runtime | Без фиктивной общей БД; отдельные `briareus_files`, `briareus_runtime`, `briareus_reverse` только при активации соответствующего постоянного состояния |
 
-## Coolify contract
+Список будущих Coolify App, их source-модули, подготовленные доменные refs, текущие состояния и ссылки на machine Watch Paths хранятся **только** в `deploy/APPLICATIONS.json`. Live App создаётся оператором по принятому опубликованному registry, не по таблице выше. Наличие draft-модуля не означает, что он должен немедленно запускаться.
 
-For every Application:
+Для больших объёмов MCP-вызовов использовать отдельный путь OTLP → SigNoz, затем выбрать оптимизированное хранилище (например, ClickHouse) **только после измерения** потока, срока хранения, стоимости, privacy и запросов. Нельзя записывать сырой поток вызовов/аргументы/секреты в Access SQL.
 
-- Repository: `ArthurKoba/briareus`.
-- Server: Tambov only.
-- Project/environment: `briareus` / `development`.
-- Base directory: `/deploy/<module>`.
-- Docker Compose location: `/docker-compose.coolify.yaml` (relative to Base directory).
-- Build context for first-party images: repository root via `../..`.
-- Dockerfile: `deploy/<module>/Dockerfile`; no root shared multi-stage Dockerfile and no cross-module Dockerfile.
-- Auto-deploy stays disabled during bootstrap/review.
-- Generated domains for Admin UI/API are source-owned Coolify directives; bootstrap itself performs no DNS or OAuth issuer mutation.
-- Watch Paths are declared in top-level `x-watch-path-coolify` and must be persisted to the Coolify Application setting by supported API. The extension alone is not a native Coolify watcher.
+## PACKAGING-V1 — единый установленный wheel, независимые pins
 
-All applications join one pre-existing external network:
+**Решение оркестратора:** все 12 first-party Python образов (не `data`, не `admin-ui`) устанавливают **один** проверенный `briareus` wheel по SHA256+PEP440 версии из собственного `deploy/<module>/wheel-pin.json`. У каждого App pin независим. Отдельный Python wheel на каждый домен в этом релизе **не** разрешён; отдельные службы/образы/БД сохраняются. Источник wheel: одна зафиксированная Git-ревизия, Hatch `pyproject.toml` и `uv.lock`. Backend A13 владеет единым package/release version contract; D4 владеет сборкой образов и per-App выбором принятого wheel. Нельзя повторно публиковать другие bytes с тем же именем/версией.
 
-```yaml
-networks:
-  briareus:
-    external: true
-    name: briareus-net
+`deploy/wheel_source_graph.py --source-root <REVIEWED_SOURCE_ROOT> --sample-matrix` генерирует **производящий** граф по принятому A13 source-манифесту `services/common/release_provenance.json` (395 входных файлов) со сверкой Hatch `packages` / `force-include`: любое его изменение требует выпуска **нового wheel**, а не безусловного триггера каждого сервиса. `impact_roots` в `wheel-pin.json` — вспомогательные указатели для source review/матрицы возможных потребителей, не Watch Paths и не разрешение автоматически менять версии. Оркестратор сравнивает исходные изменения и реальные импорты, утверждает новый wheel и только затем обновляет pins тех приложений, которым версия требуется. Единственный источник настоящих Coolify Watch Paths — `x-watch-path-coolify` в соответствующем Compose. Source-only обновление `.py`, Alembic или `uv.lock` **не обновляет** pinned Docker images само по себе. Дубликаты Watch arrays запрещены.
+
+Image Builder использует `uv sync --frozen --no-dev --no-install-project` только как **слой сторонних зависимостей**; Web сохраняет `--group web` для Playwright. После этого `deploy/install_wheel_release.py` (только offline / `--no-deps`) проверяет digest **реально доставленного** wheel, устанавливает его в `/app/.venv`, проверяет `importlib.metadata.version('briareus')`, происхождение импортов из `.venv`/site-packages и **восемь доменных Alembic-графов**. Отсутствует `PYTHONPATH=/app/services`; исходники `services/**` и `scripts/**` никогда не копируются в runtime image в обход wheel. Сервисы запускают лишь утверждённые собственные ASGI/worker entrypoint; app-level optional `MIGRATION_POSTGRES_*` остаются обязательными в D4 owner Compose.
+
+**ТЕКУЩИЙ BUILD БЛОКЕР:** D4 source stage содержит только `review_only_not_publishable` pins, основанные на принятом source-кандидате A13 wheel версии `0.1.0+a13.sd602acaa4554edc5`. Она показывает offline установку и содержимое, но не является immutable опубликованным релизом: `source_tree` ожидает A13 accepted release. `deploy/wheel_artifacts/` НЕ существует в Git/Coolify build context, и доказанного способа доставлять туда один и тот же immutable wheel из артефактного storage/OCI нет. Dockerfile намеренно **FAILS CLOSED** при отсутствии wheel, неверном SHA или review-only pin, не генерирует локально новый wheel и не скачивает с придуманного URL. Offline проверка возможна с `install_wheel_release.py --allow-review-artifact` **только в локальном scratch**, без запуска приложения. Артефактный транспорт, Docker BUILD и физический Coolify parser остаются неподтверждёнными: не нажимать Deploy и не ставить `release_status: reviewer_accepted_immutable` до реального reviewer SHA/provenance и подтверждения builder ingestion.
+
+Откат одного сервиса — возврат **его** release-pin к заранее опубликованным bytes версии и digest плюс reviewed Docker release, а не пересборка переменного текущего Git. Откат wheel не отменяет уже применённые доменные Alembic миграции; для них отдельно проверяется expand/contract/backup/rollback. Вся привязка wheel↔Git tree↔Docker build должна быть доказана перед настоящим rollout, без `SERVICE_VERSION`/отключения OTLP/подделки `.dist-info`.
+
+## Операторская сборка через отдельный доверенный Docker host (НЕ Coolify deploy)
+
+Когда независимый Reviewer/Orchestrator завершит публикацию *source producer* Git tree и отдельно примет точный wheel SHA/version и per-App pin, оператор вправе **только собрать и исследовать образ**, не запускать обычную миграционную команду. Это двухфазная публикация: сначала фиксируется неизменяемое дерево Python-производителя/общий wheel, затем отдельным проверенным изменением обновляются только pins нужных Apps. Git tree pin-коммита нельзя записать в этот же коммит как собственный SHA: это циклическая зависимость. Источник `source_tree` в pin — **дерево wheel producer**, а не последующего выбора пина.
+
+Для ручной сборки на машине, где реально доступны Docker CLI/daemon, у оператора должны быть локально: checkout ровно того wheel producer Git tree, опубликованный wheel с проверенным SHA и принятая D4 папка `deploy/` с `release_status=reviewer_accepted_immutable` для нужного модуля. Никогда не менять `review_only_not_publishable` вручную без независимой приёмки wheel/tree. `deploy/prepare_operator_image_build.py` проверяет Git tree, 395+ исходных входов через source release verifier, wheel-пакет и pin, создаёт **отдельный временный build context** за пределами Git с `pyproject.toml`, `uv.lock`, Dockerfile, ignore, установщиком, pin и единственным wheel. Ни одного бинарного wheel не нужно коммитить в `deploy/` и нельзя копировать его в долговременный shared том Docker.
+
+Команда, которую оператор запустит **после SOURCE-приёмки и публикации двух фаз**, из каталога, где ему доступны реальные файлы:
+
+```sh
+python deploy/prepare_operator_image_build.py \
+  --stage /ABSOLUTE/PATH/TO/REVIEWED/deploy \
+  --source-root /ABSOLUTE/PATH/TO/EXACT/WHEEL_PRODUCER_GIT_CHECKOUT \
+  --wheel /ABSOLUTE/PATH/TO/APPROVED/briareus-REVIEWED_VERSION-py3-none-any.whl \
+  --module identity \
+  --output /ABSOLUTE/PATH/TO/PRIVATE/TEMP/identity-build-context
 ```
 
-The network is a separate Coolify Docker Destination, not owned by Data or any module. This package does not add a network manager container.
+Скрипт не вызывает Docker. Он сам напечатает `docker build --file deploy/identity/Dockerfile --tag ... .` для сформированного каталога. Аналогично отдельно повторить для `gateway`. Сборка должна закончиться PASS, после чего проверяются в собранном образе под UID 1000 `importlib.metadata.version('briareus')`, правильный источник импортов из site-packages, все 8 Alembic-графов, lock/pin/hash и отсутствие лишних секретов/внешних volumes. **Нельзя запускать штатный owner CMD** ради smoke check: это может инициировать Alembic, для которого физические owner DB и права не разрешены. Только read-only inspection с переопределённой entrypoint и `--network none`, после отдельной проверки оператором последствий на его Docker host. Локально построенный образ автоматически **не попадает в Coolify**: дальнейший image registry / Coolify ingestion — другой явно утверждённый переход, с проверенным digest/доступом и независимым Live hold.
 
-## Release boundaries
+Сейчас эта процедура обязана отказать: все pins имеют статус `review_only_not_publishable`, canonical Git producer tree ещё не опубликован, а immutable wheel вне Git. Ни D4, ни оператор не должны «обходить» запрет ради зелёного Docker BUILT. D4 подтверждает SOURCE/STATIC/оффлайн-установку wheel, пользователь отвечает за последующий image BUILD и передачу наблюдаемого лога/результата, только после реального одобрения дерева/артефакта.
 
-There are **11 Coolify Applications / 12 long-running container definitions**: ten Briareus modules plus one grouped vendor-data Application with two containers. Web keeps HTTP/cURL + Chromium/Remote Browser together; SVC keeps GitHub + GitLab together; Infrastructure keeps its provider adapters together. Further split requires evidence of incompatible lifecycle, isolation, scaling or unacceptable restart/build time.
+## 2. Файлы и контракты Compose
 
-Authorization, Gateway, Files, Terminal, Web, SVC, Infrastructure and Reverse remain fail-closed in the current source until protected transport/C1-B2/C2 requirements are independently accepted. A green container image is not permission to enable those surfaces.
+Каждый `deploy/<module>/` содержит отдельный `Dockerfile` (только если это first-party image), переносимый `docker-compose.yaml`, и Coolify-адаптер `docker-compose.coolify.yaml`. Это **не** `deploy/coolify/`, и нет общего Compose для всех доменов. Отдельный `deploy/data` объединяет только два vendor-сервиса, но не помещает их в один Linux-контейнер.
 
-## Data and migrations
+`docker-compose.yaml` определяет runtime (сервис, build, command, health, volumes, сеть) без Coolify-specific магии. `docker-compose.coolify.yaml` импортирует его через `extends`, повторяет необходимые ENV для парсера Coolify, содержит generated FQDN/URL директиву только для разрешённых публичных Apps и **верхнеуровневый `x-watch-path-coolify`**. Этот `x-...` список — единственный источник имён Watch Paths. Он НЕ автоматически попадает в native Coolify setting: scripts `bootstrap_coolify.py`/`sync_watch_paths_coolify.py` читают source и независимо синхронизируют native `watch_paths` после разрешённой публикации.
 
-`deploy/data/docker-compose.yaml` owns only PostgreSQL 18 and Valkey 9 vendor containers, distinct named volumes and no host ports. Database is `briareus_dev`. No manual Data schema initializer is allowed. Accepted Authorization startup owns Alembic upgrade under a PostgreSQL advisory lock. Existing physical Data volumes are not renamed by service-naming cleanup.
+Coolify Git-backed Compose: Base directory `/deploy/<module>`, Docker Compose Location `/docker-compose.coolify.yaml` — путь к Compose **относительно Base directory**, а не полный путь из Git. Branch — точная опубликованная и принятая версия (`main` только после reviewer merge). `build.context: ../..` рассчитывается относительно модуля, то есть это корень репозитория, не папка Admin/Backend. Dockerfile и `COPY` должны присутствовать в **реальном** BuildKit-контексте с учётом root `.dockerignore` и приоритетного `Dockerfile.dockerignore` (у Admin UI отдельный whitelist для `admin-web-app`). Нельзя ослаблять `.dockerignore` всего репозитория ради одного образа.
 
-## Bootstrap
+`APPLICATIONS.json` хранит имена, module, Base/Compose и строки `watch_paths_source` (указатель на Compose поле) и `wheel_pin_source` (отдельный указатель на immutable App release). Второй список Watch-паттернов туда копировать запрещено. Файл `deploy/verify_deploy_static.py` проверяет совпадение registry/Compose/COPY/Watch и проектные запреты. Изменение модуля из wheel требует **новый reviewed wheel**, затем выборочный bump соответствующих `wheel-pin.json` (а НЕ добавление shared Python source в per-App Watch); `deploy/README.md` не должен пересобирать все Apps. Изменение общего installer `deploy/install_wheel_release.py` легитимно требует пересборки всех wheel-консьюмеров и поэтому наблюдается всеми 12 Apps. `uv.lock`/`pyproject.toml` — producer inputs wheel, их влияние на app выявляется через source-impact review. Документы не триггерят приложение.
 
-`bootstrap_coolify.py` is dry-run-first. With authenticated write access and explicit owner approval, it may reconcile only:
+## 3. ENV, Team/Environment Shared и границы секретов
 
-1. Coolify project `briareus` and environment `development`;
-2. independent `briareus-net` Destination on Tambov;
-3. the 11 exact Git-backed Applications from `APPLICATIONS.json`;
-4. Base directory, Compose path, branch, disabled auto-deploy and exact Watch Paths;
-5. parsed Application variables to already-existing Team/Environment Shared references, runtime-only/buildtime-disabled.
+* Team Shared: `TZ`, `OTLP_ENDPOINT`, секрет `OTLP_BEARER_TOKEN` **только для server emitters**. Browser Admin UI может получить `TZ`, но никогда collector bearer.
+* Environment Shared: `SERVICE_NAMESPACE=briareus`, `DEPLOYMENT_ENVIRONMENT=development`, отдельные runtime `IDENTITY|ACCESS|CONTROL|CATALOG_POSTGRES_USER/PASSWORD` и **обязательные отдельные миграционные** `IDENTITY|ACCESS|CONTROL|CATALOG_MIGRATION_POSTGRES_USER/PASSWORD` для соответствующего owner. Полные имена/ссылки — только в `APPLICATIONS.json`, без секретов в Git. Existing `POSTGRES_USER/PASSWORD` остаются у Data. Нельзя передавать общий Data SQL principal владельцам других БД.
+* В Coolify Compose `${VAR:?}` обозначает required без fallback; `${VAR:-default}` — необязательное значение с безопасным fallback. Парсер создаёт Application variable, затем только разрешённый bootstrap связывает её с `{{team.KEY}}` либо `{{environment.KEY}}`, не читая/не копируя секреты. Runtime=true, Buildtime=false для server runtime secrets. Buildtime должен включаться лишь если конкретный build действительно нуждается в значении и отдельно проверен на утечку.
+* Source-owned константы (например, `OTEL_SERVICE_NAME`, внутренний порт, адрес Docker DNS или имя целевой owner database) не обязаны быть изменяемыми операторскими ENV. Не дублировать псевдо-флаги для обхода авторизации, миграции или readiness. Все значения secret хранятся в соответствующих Shared scope, **не** в Git, браузере, локальных отчётах или logs.
 
-It never deploys/starts Applications, never generates or prints secret values, never touches legacy applications, never changes DNS/OAuth, and never blindly retries a failed create. Missing current Team/Environment Shared bindings, required Application inputs, or pending Compose parser materialization stop reconciliation.
+A12 вводит **два разных principals на owner DB**: runtime только минимальный DML/SELECT/sequence usage на своей базе и schema-status чтение; migration — владеет DDL только собственной логической БД и её Alembic version. `common.owner_runtime` создаёт миграционное соединение на время normal ASGI startup и закрывает до обслуживания HTTP; затем runtime connection выполняет независимую read-only verify. В A12 коде существует backward fallback на один DDL-capable runtime principal, но D4 сознательно **запрещает** этот вариант на новом релизе посредством восьми обязательных Environment Shared миграционных переменных. Не считать само присутствие Env доказательством SQL GRANT или отсечения runtime DDL. Provisioning principal создаёт и назначает DB/roles отдельно, без входа в обычные образы. Должны быть Backup/restore/credential-rotation и безопасный отзыв ролей; superuser credentials в runtime запрещены.
 
-## Evidence boundary
+## 4. Сеть и безопасность
 
-D3-ENV static validation may prove paths, COPY→Watch dependencies, YAML structure, registry consistency and script syntax. It is **not** Docker image BUILD or Coolify parser/runtime acceptance. Installed Coolify version and authenticated Destination/Application bootstrap remain live evidence gates before the first deployment.
+`briareus-net` — отдельная `external` Docker network, **не** владение Data Compose и **не** эквивалент доверенной VPC. Контейнерное DNS на общей сети допускает сетевой путь, но доступ должен ограничиваться адресатом, привилегиями БД, signed service identity, точной audience и актуальным User+Control+Access revision/grant. Отдельные private DB сети разумны только после подтверждения реальной Coolify/Docker topology, DNS, proxy reachability и rollback; не создавать их всем модулям без доказательства. Публичный FQDN Admin API не означает C1-B2/C2 readiness. Все privileged операции DENY при недостоверном owner proof; нельзя принимать UUID, forwarded headers или кеш-projection за право.
+
+## 5. Provisioning, миграции и порядок запуска — GATED
+
+**Provisioning** создаёт логические DB/roles через отдельно одобренный воспроизводимый infrastructure mechanism, с проверкой current DB identity, capability/provider API, роли, backup, owner-scoped ACL и existing volume bindings. Coolify Application bootstrap **НЕ** умеет сам создавать PostgreSQL DB/roles: это отдельный источник полномочий, который не следует имитировать несуществующим Coolify endpoint. Не исполнять разовый ручной SQL, `docker-entrypoint-initdb.d`, `create_all()`, `stamp head`, one-shot schema container или глобальный migrator. Пока trusted automated provisioning surface не утверждён, этот шаг остаётся BLOCKED.
+
+**Schema upgrade** выполняет единственный соответствующий owner с собственной отдельной DDL-ролью как обязательную часть нормального trusted-startup: ждёт корректную DB, получает per-DB advisory lock, проверяет только собственный Alembic head/version и сопоставимость schema, применяет заранее принятые source revisions, проверяет commit/head и только потом отмечает **свою** schema-ready. Fail-closed при чужой версии/DDL/неверном DB, отмена/компенсация — ревью отдельных миграций. Исторический A10 `0001_briareus_baseline` и `0002_browser_telemetry`, мигрирующие все 10 схем из Authorization, **ЗАПРЕЩЕНЫ** в новой topology и НЕ могут переименовываться/штамповаться для четырёх DB.
+
+Рекомендуемая цепь (не команда для запуска): review+backups Data → проверить реальные volumes и grants → provision owner-specific DB/roles → owner-local migrations и schema readiness → подписанная доступность Identity, Control, Access, Catalog (в правильном порядке current proof) → Admin API BFF/GUI/Gateway → scoped Files/Runtime/Reverse owner stores по мере активации. Нельзя предполагать атомарную SQL транзакцию между owner DB: нужны owner-local outbox, глобально уникальный operation ID, fencing/версионирование, идемпотентность и reconciliation, а не blind retry. Отзыв Team/Project/User access — первоклассная граница безопасности.
+
+`/health/live` говорит только о процессе. `/health/ready` — о проверенных собственном head и необходимых signed dependencies. Без C2 peer/signer текущая готовность Authorization корректно остаётся недоступной. Изображение `running:healthy` и успешная сборка — не доказательство логина или защищённых MCP операций.
+
+## 6. Source release, bootstrap, Watch Paths и native sync
+
+1. Сначала независимая source-приёмка A11/B15/R13/D4, затем один reviewer-approved Git PR и только потом корректные опубликованные Dockerfile/Compose в Coolify. Не подставлять локальные грязные рабочие деревья как «уже опубликованные».
+2. Локальная static-проверка: `python deploy/verify_deploy_static.py` из принятого Checkout с нужными зависимостями; parser/read-only проверки `bootstrap_coolify.py --branch main` и `sync_watch_paths_coolify.py --compose deploy/<module>/docker-compose.coolify.yaml --application-uuid <REAL_UUID> --branch main --coolify-url <TRUSTED_ORIGIN>` без `--apply` (второй без токена проверит только source-паттерны). Программа статического impact анализа должна брать patterns из Compose, **не** из отдельного вручную написанного WATCH_PATHS.md.
+3. Только отдельно одобренный оператор, имеющий неэкспортируемый доступ к Coolify write API, задаёт `COOLIFY_API_TOKEN` на доверенном execution surface; `bootstrap_coolify.py --branch main --apply --expected-version <EXACT_LIVE_VERSION>` синхронизирует config-only и Shared refs; при уже созданном app — `sync_watch_paths_coolify.py --compose ... --application-uuid <REAL_UUID> --branch main --coolify-url <TRUSTED_ORIGIN> --apply` меняет **только** Watch Paths. Оба script не должны делать deploy/start/restart/DDL.
+4. Ручная проверка после config-only: native Watch Paths побайтно равны source; branch/repo/Base/service identity совпадают; `Required` resolved к правильному Shared scope; runtime/buildtime флаги; никакой public route/secret leak/Volume detach. Создание owner DB или первый запуск Authorization — **отдельное** позднее действие с явным разрешением.
+5. Git review/rollback: документировать exact commit, список изменённых сервисов, миграции и эффекты, зарегистрированные Coolify deployments, секреты/backup. Source rollback не равен DB downgrade: миграционные ревизии необратимо меняют schema и требуют compatible expand/contract и восстановления из принятой backup. Сначала проверять remote status/replay safety, затем rollback лишь затронутого release, без удаления живых volumes.
+
+## 7. Эксплуатационная диагностика
+
+| Сигнал | Проверка / действие |
+| --- | --- |
+| Coolify не создал Required ENV | Проверить exact `${VAR:?}` в `environment:` владеющего сервиса Coolify Compose; затем parser/materialized Application variable и Shared scope (не раскрывая значение) |
+| Container содержит старое `-dev-` имя | Проверить Compose service key, network aliases, generated URL keys, сохранённый deployment SHA; не менять физические storage IDs вслепую |
+| Сервис health-only, HTTP защищённые пути 403/503 | Проверить C2 signed transport/readiness/peer, реальную ревизию owner DB; не отключать middleware или не включать публичные маршруты ради зелёного health |
+| Alembic foreign/unknown version или owner DB отсутствует | Остановить activation, проверить настоящий host/DB/role и accepted revisions; НЕ `stamp head`/manual initializer/создание новой пустой DB взамен старой |
+| Потерян persistent volume после Compose rename | Немедленно сверить Coolify storage record, effective Docker mount и rollback/backup. Имя `postgres-data` в Git может отличаться от реального UUID-префиксного volume; не угадывать, не `down -v` |
+| Watch Paths не применились | `x-watch-path-coolify` в Git — декларация; сравнить с native Coolify `watch_paths`, применить только после публикации и target validation. Docs-only change не требует redeploy |
+| Watch Paths вызывают лишние сборки | Проверить COPY-дерево, transitive Python imports, lockfile, Dockerfile.dockerignore и script-generated source impact. Не использовать глобальные `services/**` или `deploy/**` без доказательства |
+| OTLP отсутствует в SigNoz | Проверить server-side exporter, Team scope, service.name/namespace/version и actual collector reception, не открывая bearer. ENV сам по себе не доказывает telemetry delivery |
+| `exit 78` | Намеренная fail-closed заглушка source-пакета без accepted entrypoint/C1-B2/C2, не обходить заменой CMD на старый незащищённый runtime |
+| Native/Browser/Files недоступны | Проверить независимого владельца store, подписанный actor/project/grants/OS attestation, а не ломать сеть или выдавать универсальный DB доступ |
+
+## 8. Уровни доказательств и актуальность
+
+**SOURCE/STATIC**: registry, YAML, Watch Paths, Docker COPY, отсутствие опасных флагов/общего migrator. **BUILD**: реальная сборка image/wheel/UI; успешный stub `test`/`docker` job с `true` не является билдом. **DEV_RUNTIME**: живой конкретный контейнер, network/volume, owner DB head, безопасная миграция на согласованной БД. **PROTECTED_RUNTIME/C2**: реальный signed transport, актуальный principal/Team/Project/grants, OS/Files restrictions и browser-origin. **PRODUCTION** требует отдельных rollback/backup/нагрузки/monitoring gates. Нельзя повышать один уровень до другого без наблюдений.
+
+Проектный контракт архитектуры: `docs/architecture/storage-ownership-orchestrator-review.md`. Исторические и отменённые публикации остаются в истории Git и `coordination/`; не поддерживаются вторым активным руководством в `deploy/`. Состав и состояние источников меняются при последующих принятых задачах A11/R13; перед публикацией D4 обязан согласовать фактические импорты и owner Alembic paths с этими исходниками.

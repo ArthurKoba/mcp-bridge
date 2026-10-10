@@ -108,7 +108,11 @@ def _public_facade(
     backend_url: str,
     authorization_by_surface: dict[str, RemoteAuthProvider],
 ) -> FastMCP:
-    middleware: list[Middleware] = [SafeRuntimeToolTelemetry("gateway", _runtime_telemetry.sink)]
+    middleware: list[Middleware] = [
+        SafeRuntimeToolTelemetry(
+            "gateway", _runtime_telemetry.sink, buffer=_runtime_telemetry.event_buffer
+        )
+    ]
     if _authorization_access_settings.enabled:
         middleware.append(AccessSessionMiddleware(surface=name, client=_authorization_access))
     surface = FastMCP(
@@ -142,7 +146,9 @@ mcp = FastMCP(
     "mcp-bridge",
     version=__version__,
     middleware=[
-        SafeRuntimeToolTelemetry("gateway", _runtime_telemetry.sink),
+        SafeRuntimeToolTelemetry(
+            "gateway", _runtime_telemetry.sink, buffer=_runtime_telemetry.event_buffer
+        ),
         *(
             [AccessSessionMiddleware(surface="root", client=_authorization_access)]
             if _authorization_access_settings.enabled

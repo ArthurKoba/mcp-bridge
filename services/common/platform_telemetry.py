@@ -19,7 +19,17 @@ from opentelemetry.trace import Span
 from .observability import CompositeObservabilitySink, build_observability
 from .settings import ObservabilitySettings
 
-ServiceName = Literal["authorization", "admin-api"]
+ServiceName = Literal[
+    "authorization",
+    "admin-api",
+    "identity",
+    "platform",
+    "resources",
+    "files",
+    "runtime",
+    "reverse",
+    "ingest",
+]
 
 
 class BriareusHttpTelemetry:

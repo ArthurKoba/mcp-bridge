@@ -15,7 +15,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     String,
@@ -24,14 +23,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import FilesBase
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-class FileQuotaAccountRow(PlatformBase):
+class FileQuotaAccountRow(FilesBase):
     __tablename__ = "quota_accounts"
     __table_args__ = (
         CheckConstraint(
@@ -41,9 +40,7 @@ class FileQuotaAccountRow(PlatformBase):
         CheckConstraint("version >= 1", name="ck_file_quota_version"),
         {"schema": "files"},
     )
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT"), primary_key=True
-    )
+    project_id: Mapped[UUID] = mapped_column(primary_key=True)
     byte_limit: Mapped[int] = mapped_column(BigInteger)
     used_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -52,7 +49,7 @@ class FileQuotaAccountRow(PlatformBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
-class FileObjectRow(PlatformBase):
+class FileObjectRow(FilesBase):
     __tablename__ = "file_objects"
     __table_args__ = (
         UniqueConstraint("project_id", "path_digest", name="uq_file_object_project_path"),
@@ -62,9 +59,7 @@ class FileObjectRow(PlatformBase):
         {"schema": "files"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
     path_digest: Mapped[str] = mapped_column(String(64))
     inode_digest: Mapped[str | None] = mapped_column(String(64))
     content_sha256: Mapped[str | None] = mapped_column(String(64))
@@ -74,7 +69,7 @@ class FileObjectRow(PlatformBase):
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
-class FileQuotaReservationRow(PlatformBase):
+class FileQuotaReservationRow(FilesBase):
     __tablename__ = "quota_reservations"
     __table_args__ = (
         CheckConstraint(
@@ -106,15 +101,9 @@ class FileQuotaReservationRow(PlatformBase):
     )
     reservation_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     operation_uuid: Mapped[UUID] = mapped_column(nullable=False)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
-    agent_session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
-    actor_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("identity.users.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
+    agent_session_uuid: Mapped[UUID] = mapped_column()
+    actor_user_id: Mapped[UUID] = mapped_column()
     owner_service_id: Mapped[UUID] = mapped_column()
     path_digest: Mapped[str] = mapped_column(String(64))
     idempotency_digest: Mapped[str] = mapped_column(String(64))

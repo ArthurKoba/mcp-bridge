@@ -2,12 +2,9 @@ x-watch-path-coolify:
   - "deploy/files/Dockerfile"
   - "deploy/files/docker-compose.yaml"
   - "deploy/files/docker-compose.coolify.yaml"
-  - "pyproject.toml"
-  - "uv.lock"
-  - "services/common/**"
-  - "services/modules/__init__.py"
-  - "services/modules/project_runtime/**"
-  - "services/modules/files/**"
+  - "deploy/files/Dockerfile.dockerignore"
+  - "deploy/files/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
 
 # Coolify override for a single independent Git-backed Application.
 # Coolify variable discovery happens before resolving extends; mirror env keys.

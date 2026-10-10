@@ -13,7 +13,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -23,14 +22,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import ReverseBase
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-class NativeProjectRow(PlatformBase):
+class NativeProjectRow(ReverseBase):
     __tablename__ = "native_projects"
     __table_args__ = (
         UniqueConstraint("project_id", "native_project_key", name="uq_reverse_project_native"),
@@ -39,9 +38,7 @@ class NativeProjectRow(PlatformBase):
         {"schema": "reverse"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
     native_project_key: Mapped[str] = mapped_column(String(256))
     owner_service_id: Mapped[UUID] = mapped_column()
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -49,18 +46,13 @@ class NativeProjectRow(PlatformBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
-class NativeImportRow(PlatformBase):
+class NativeImportRow(ReverseBase):
     __tablename__ = "native_imports"
     __table_args__ = (
         ForeignKeyConstraint(
             ["native_project_id", "project_id"],
             ["reverse.native_projects.id", "reverse.native_projects.project_id"],
             name="fk_native_import_project_owner",
-        ),
-        ForeignKeyConstraint(
-            ["file_object_id", "project_id"],
-            ["files.file_objects.id", "files.file_objects.project_id"],
-            name="fk_native_import_source_project",
         ),
         CheckConstraint(
             "status IN ('reserved','dispatched','succeeded','unknown',"
@@ -107,21 +99,15 @@ class NativeImportRow(PlatformBase):
     )
     import_uuid: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     operation_uuid: Mapped[UUID] = mapped_column(nullable=False)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
     native_project_id: Mapped[UUID] = mapped_column(nullable=False)
     file_object_id: Mapped[UUID] = mapped_column(nullable=False)
     source_file_version: Mapped[int] = mapped_column(Integer)
     source_content_sha256: Mapped[str] = mapped_column(String(64))
     source_size_bytes: Mapped[int] = mapped_column(Integer)
     auto_analyze: Mapped[bool] = mapped_column(Boolean)
-    actor_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("identity.users.id", ondelete="RESTRICT")
-    )
-    agent_session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
+    actor_user_id: Mapped[UUID] = mapped_column()
+    agent_session_uuid: Mapped[UUID] = mapped_column()
     owner_service_id: Mapped[UUID] = mapped_column()
     idempotency_digest: Mapped[str] = mapped_column(String(64))
     request_fingerprint: Mapped[str] = mapped_column(String(64))

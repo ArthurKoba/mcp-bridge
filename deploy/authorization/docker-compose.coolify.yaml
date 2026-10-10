@@ -1,28 +1,12 @@
 x-watch-path-coolify:
   - "deploy/authorization/Dockerfile"
+  - "deploy/authorization/Dockerfile.dockerignore"
   - "deploy/authorization/docker-compose.yaml"
   - "deploy/authorization/docker-compose.coolify.yaml"
-  - "pyproject.toml"
-  - "uv.lock"
-  - "README.md"
-  - "LICENSE"
-  - "services/authorization/**"
-  - "services/common/**"
-  - "services/identity/**"
-  - "services/teams/**"
-  - "services/projects/**"
-  - "services/agents/**"
-  - "services/bridge/**"
-  - "services/modules/**"
-  - "services/admin-api/src/presentation/**"
-  - "services/admin-api/src/platform_runtime.py"
-  - "services/admin-api/src/api_errors.py"
-  - "scripts/alembic.ini"
-  - "scripts/alembic_greenfield/**"
+  - "deploy/authorization/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
 
-# Coolify parser materializes required DB variables and optional telemetry
-# defaults. Shared reference VALUES are configured only through scoped
-# Coolify Team/Environment bindings; no token or secret is stored in Git.
+# Coolify parses literals and Required ENV before resolving Shared references.
 services:
   briareus-authorization:
     extends:
@@ -37,9 +21,11 @@ services:
       OTEL_SERVICE_NAME: "authorization"
       POSTGRES_HOST: "briareus-postgres"
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: "briareus_dev"
-      POSTGRES_USER: "${POSTGRES_USER:?}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+      POSTGRES_DB: "briareus_access"
+      POSTGRES_USER: "${ACCESS_POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${ACCESS_POSTGRES_PASSWORD:?}"
+      MIGRATION_POSTGRES_USER: "${ACCESS_MIGRATION_POSTGRES_USER:?}"
+      MIGRATION_POSTGRES_PASSWORD: "${ACCESS_MIGRATION_POSTGRES_PASSWORD:?}"
 networks:
   briareus:
     external: true

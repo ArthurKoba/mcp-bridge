@@ -1,0 +1,10 @@
+# Release wheel is a single trusted input; deny all arbitrary source overlays.
+**
+!pyproject.toml
+!uv.lock
+!deploy/
+!deploy/install_wheel_release.py
+!deploy/infrastructure/
+!deploy/infrastructure/wheel-pin.json
+!deploy/wheel_artifacts/
+!deploy/wheel_artifacts/**

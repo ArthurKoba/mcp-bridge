@@ -34,6 +34,8 @@ SUPPORTED_GRANTS = frozenset(
         "agents.manage",
         "integrations.use",
         "variables.use",
+        "integrations.manage",
+        "variables.manage",
     }
 )
 

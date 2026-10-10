@@ -13,9 +13,8 @@ const sidebarCollapsed = ref(false)
 const density = ref<DensityPreference>("compact")
 const locale = ref<LocalePreference>("ru")
 const displayTimeZone = ref<DisplayTimeZone>("system")
-/** Explicit B14 local diagnostics consent. Existing B13 telemetry booleans do
- * not authorize new instrumentation or future network delivery. */
-const DIAGNOSTICS_CONSENT_KEY = "briareus:diagnostics-consent:v1"
+/** B16: diagnostics consent is SESSION/TAB-local. An earlier User cannot
+ * authorize collection for another User via persisted browser preference. */
 const diagnosticsConsent = ref(false)
 
 type StoredPreferences = Partial<{
@@ -67,25 +66,13 @@ function applyDensity(): void {
 
 readPreferences()
 watch([theme, sidebarCollapsed, density, locale, displayTimeZone], persist)
-// Consent is independent of UI preferences and cannot be inherited from an
-// older application or from pre-B14 implicit telemetry defaults.
-try { diagnosticsConsent.value = localStorage.getItem(DIAGNOSTICS_CONSENT_KEY) === "granted" }
-catch { diagnosticsConsent.value = false }
-watch(diagnosticsConsent, allowed => {
-  try { if (allowed) localStorage.setItem(DIAGNOSTICS_CONSENT_KEY, "granted")
-        else localStorage.removeItem(DIAGNOSTICS_CONSENT_KEY) }
-  catch { diagnosticsConsent.value = false }
-}, {flush:"sync"})
+// Revoke the previous B14 persisted consent grant. A fresh page/tab/user
+// always starts with diagnostics OFF; never read a previously stored opt-in.
+try {localStorage.removeItem("briareus:diagnostics-consent:v1")}catch{/* no storage access */}
 watch(theme, applyTheme, { immediate: true })
 watch(density, applyDensity, { immediate: true })
 
 window.addEventListener("storage", (event) => {
-  // Clearing consent in another tab must immediately stop and purge local
-  // diagnostics here too; cannot inherit pre-B14 telemetry settings.
-  if(event.key===DIAGNOSTICS_CONSENT_KEY){
-    diagnosticsConsent.value=event.newValue==="granted"
-    return
-  }
   if (event.key !== STORAGE_KEY || !event.newValue) return
   try {
     applyStored(JSON.parse(event.newValue) as StoredPreferences)

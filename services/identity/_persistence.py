@@ -8,14 +8,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import IdentityBase
 
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
 
 
-class UserRow(PlatformBase):
+class UserRow(IdentityBase):
     __tablename__ = "users"
     __table_args__ = (
         Index("ix_identity_user_active_role", "enabled", "role"),
@@ -37,14 +37,14 @@ class UserRow(PlatformBase):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class BootstrapRow(PlatformBase):
+class BootstrapRow(IdentityBase):
     __tablename__ = "bootstrap"
     __table_args__ = {"schema": "identity"}  # noqa: RUF012
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     first_superuser_claimed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class LoginAttemptRow(PlatformBase):
+class LoginAttemptRow(IdentityBase):
     """Persistent fail-closed backoff for verified local login sources."""
 
     __tablename__ = "login_attempts"
@@ -56,7 +56,7 @@ class LoginAttemptRow(PlatformBase):
     blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class AdminTokenRevocationRow(PlatformBase):
+class AdminTokenRevocationRow(IdentityBase):
     """Revoked signed Admin token jti digests; no bearer is persisted."""
 
     __tablename__ = "admin_token_revocations"
@@ -71,7 +71,7 @@ class AdminTokenRevocationRow(PlatformBase):
     revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class InvitationRow(PlatformBase):
+class InvitationRow(IdentityBase):
     __tablename__ = "invitations"
     __table_args__ = (
         Index("ix_identity_invitation_pending", "kind", "used_at", "revoked_at"),

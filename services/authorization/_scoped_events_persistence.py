@@ -14,7 +14,6 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
-    ForeignKey,
     Index,
     String,
     UniqueConstraint,
@@ -22,14 +21,14 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import ControlBase
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-class ScopeCursorRow(PlatformBase):
+class ScopeCursorRow(ControlBase):
     __tablename__ = "scope_cursors"
     __table_args__ = (
         CheckConstraint(
@@ -40,7 +39,7 @@ class ScopeCursorRow(PlatformBase):
             "revision >= 0",
             name="ck_scope_cursor_revision",
         ),
-        {"schema": "authorization"},
+        {"schema": "control"},
     )
     scope_kind: Mapped[str] = mapped_column(String(16), primary_key=True)
     scope_id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -49,7 +48,7 @@ class ScopeCursorRow(PlatformBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
-class ScopeEventRow(PlatformBase):
+class ScopeEventRow(ControlBase):
     __tablename__ = "scope_events"
     __table_args__ = (
         CheckConstraint(
@@ -63,16 +62,14 @@ class ScopeEventRow(PlatformBase):
         ),
         Index("ix_scope_event_delivery", "scope_kind", "scope_id", "sequence"),
         Index("ix_scope_event_retention", "expires_at"),
-        {"schema": "authorization"},
+        {"schema": "control"},
     )
     event_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     scope_kind: Mapped[str] = mapped_column(String(16))
     scope_id: Mapped[UUID] = mapped_column(nullable=False)
     sequence: Mapped[int] = mapped_column(BigInteger)
     epoch: Mapped[UUID] = mapped_column()
-    source_outbox_id: Mapped[UUID] = mapped_column(
-        ForeignKey("authorization.outbox.id", ondelete="RESTRICT")
-    )
+    source_outbox_id: Mapped[UUID] = mapped_column()
     event_type: Mapped[str] = mapped_column(String(128))
     actor_user_id: Mapped[UUID | None] = mapped_column()
     safe_payload: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
@@ -80,7 +77,7 @@ class ScopeEventRow(PlatformBase):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class ScopeDeliveryReceiptRow(PlatformBase):
+class ScopeDeliveryReceiptRow(ControlBase):
     """Durable C2 consumer ACK; no Valkey Pub/Sub delivery claim."""
 
     __tablename__ = "scope_delivery_receipts"
@@ -89,7 +86,7 @@ class ScopeDeliveryReceiptRow(PlatformBase):
             "subscriber_id", "scope_kind", "scope_id", name="uq_scope_subscriber_cursor"
         ),
         CheckConstraint("ack_sequence >= 0", name="ck_scope_ack_revision"),
-        {"schema": "authorization"},
+        {"schema": "control"},
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     subscriber_id: Mapped[UUID] = mapped_column(nullable=False)

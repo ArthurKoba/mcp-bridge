@@ -31,6 +31,7 @@ from common.platform_errors import (
 from common.platform_ids import UserId
 from identity._domain import User, canonical_username
 from identity._operator_channel import UnixFirstAdminOperatorGate
+from identity._owner_ledger import OwnerAuditRow, OwnerOutboxRow
 from identity._persistence import InvitationRow, LoginAttemptRow, UserRow
 from identity._repository import IdentityRepository, to_user
 from identity._settings import IdentityLinkSettings
@@ -48,6 +49,8 @@ class IdentityService:
         *,
         operator_gate: UnixFirstAdminOperatorGate | None = None,
     ) -> None:
+        if database.engine.url.database != "briareus_identity":
+            raise RuntimeError("Identity operations require briareus_identity, not global DB")
         self.database = database
         self.repository = IdentityRepository()
         self._operator_gate = operator_gate
@@ -66,6 +69,47 @@ class IdentityService:
         else:
             async with self.database.transaction() as session:
                 yield session
+
+    @staticmethod
+    def _record_local_security_event(
+        tx: AsyncSession,
+        *,
+        actor_id: UserId | None,
+        target_id: UUID,
+        event: str,
+        credential_version: int,
+    ) -> None:
+        """Owner-local durable security event atomically with Identity mutation.
+
+        Never emit raw setup tokens, usernames, passwords, auth headers, IPs
+        or credential material; Control/Access read projections do not grant.
+        """
+        if not event.startswith("identity.") or credential_version < 0:
+            raise ValueError("identity security event must have a bounded owner revision")
+        operation_uuid = uuid4()
+        details: dict[str, object] = {
+            "subject_user_id": str(target_id),
+            "credential_version": credential_version,
+        }
+        tx.add(
+            OwnerAuditRow(
+                operation_uuid=operation_uuid,
+                actor_user_id=actor_id,
+                project_id=None,
+                action=event,
+                object_id=str(target_id),
+                owner_revision=str(credential_version),
+                details=details,
+            )
+        )
+        tx.add(
+            OwnerOutboxRow(
+                operation_uuid=operation_uuid,
+                event_name=event,
+                owner_revision=str(credential_version),
+                event_payload=details,
+            )
+        )
 
     async def issue_first_admin_setup(
         self,
@@ -110,6 +154,13 @@ class IdentityService:
                 )
             )
             await tx.flush()
+            self._record_local_security_event(
+                tx,
+                actor_id=None,
+                target_id=UUID(int=0),
+                event="identity.bootstrap_setup_issued",
+                credential_version=0,
+            )
         return SecretStr(raw)
 
     async def issue_registration_invitation(
@@ -121,14 +172,20 @@ class IdentityService:
                 raise AccessDenied("current user is not active")
             raw = random_token()
             issued_link = self._link("invite", raw)
-            tx.add(
-                InvitationRow(
-                    id=uuid4(),
-                    token_digest=token_hash(raw),
-                    kind="registration",
-                    created_by_user_id=actor,
-                    expires_at=utcnow() + timedelta(days=7),
-                )
+            invited = InvitationRow(
+                id=uuid4(),
+                token_digest=token_hash(raw),
+                kind="registration",
+                created_by_user_id=actor,
+                expires_at=utcnow() + timedelta(days=7),
+            )
+            tx.add(invited)
+            self._record_local_security_event(
+                tx,
+                actor_id=actor,
+                target_id=invited.id,
+                event="identity.invitation_issued",
+                credential_version=issuer.credential_version,
             )
         return issued_link
 
@@ -186,6 +243,13 @@ class IdentityService:
             row.used_at = utcnow()
             bootstrap.first_superuser_claimed = True
             await tx.flush()
+            self._record_local_security_event(
+                tx,
+                actor_id=UserId(row.created_by_user_id) if row.created_by_user_id else None,
+                target_id=new_user.id,
+                event="identity.registered",
+                credential_version=new_user.credential_version,
+            )
             return to_user(new_user)
 
     async def authenticate(self, username: str, password: str) -> User | None:
@@ -313,6 +377,13 @@ class IdentityService:
             user.password_digest = new_digest
             user.credential_version += 1
             user.updated_at = utcnow()
+            self._record_local_security_event(
+                tx,
+                actor_id=actor,
+                target_id=user.id,
+                event="identity.password_changed",
+                credential_version=user.credential_version,
+            )
 
     async def issue_password_reset(
         self, admin: UserId, target: UserId, *, session: AsyncSession | None = None
@@ -326,15 +397,21 @@ class IdentityService:
                 raise ResourceMissing("target user not found")
             raw = random_token()
             issued_link = self._link("reset", raw)
-            tx.add(
-                InvitationRow(
-                    id=uuid4(),
-                    token_digest=token_hash(raw),
-                    kind="password_reset",
-                    created_by_user_id=admin,
-                    target_user_id=target,
-                    expires_at=utcnow() + timedelta(minutes=15),
-                )
+            reset = InvitationRow(
+                id=uuid4(),
+                token_digest=token_hash(raw),
+                kind="password_reset",
+                created_by_user_id=admin,
+                target_user_id=target,
+                expires_at=utcnow() + timedelta(minutes=15),
+            )
+            tx.add(reset)
+            self._record_local_security_event(
+                tx,
+                actor_id=admin,
+                target_id=target,
+                event="identity.password_reset_issued",
+                credential_version=user.credential_version,
             )
         return issued_link
 
@@ -363,6 +440,13 @@ class IdentityService:
             user.credential_version += 1
             user.updated_at = utcnow()
             row.used_at = utcnow()
+            self._record_local_security_event(
+                tx,
+                actor_id=UserId(row.created_by_user_id) if row.created_by_user_id else None,
+                target_id=user.id,
+                event="identity.password_reset",
+                credential_version=user.credential_version,
+            )
             return to_user(user)
 
     async def set_superuser(
@@ -385,6 +469,13 @@ class IdentityService:
             user.role = "superuser" if enabled else "user"
             user.credential_version += 1
             user.updated_at = utcnow()
+            self._record_local_security_event(
+                tx,
+                actor_id=admin,
+                target_id=user.id,
+                event="identity.role_changed",
+                credential_version=user.credential_version,
+            )
             return to_user(user)
 
     async def set_suspended(
@@ -410,6 +501,13 @@ class IdentityService:
             user.updated_at = utcnow()
             if suspend:
                 await self.repository.revoke_outstanding_invitations(tx, target, utcnow())
+            self._record_local_security_event(
+                tx,
+                actor_id=admin,
+                target_id=user.id,
+                event="identity.suspended" if suspend else "identity.restored",
+                credential_version=user.credential_version,
+            )
             return to_user(user)
 
     async def revoke_invitation(
@@ -432,3 +530,10 @@ class IdentityService:
                 raise Conflict("cannot revoke an already used invitation")
             if invitation.revoked_at is None:
                 invitation.revoked_at = utcnow()
+                self._record_local_security_event(
+                    tx,
+                    actor_id=actor,
+                    target_id=invitation.id,
+                    event="identity.invitation_revoked",
+                    credential_version=user.credential_version,
+                )

@@ -2,8 +2,7 @@ FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PYTHONPATH=/app/services
+    UV_LINK_MODE=copy
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -19,13 +18,17 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ENV ASGI_APP=modules.terminal.runtime:app \
     HOME=/home/agent
-COPY services/common ./services/common
-COPY services/modules/__init__.py ./services/modules/__init__.py
-COPY services/modules/project_runtime ./services/modules/project_runtime
-COPY services/modules/terminal ./services/modules/terminal
 RUN useradd -u 1000 -m -d /home/agent agent \
     && mkdir -p /workspace \
     && chown -R 1000:1000 /workspace /home/agent
+# PACKAGING-V1: dependency layer only; Briareus installed ONLY from reviewed immutable wheel.
+COPY deploy/install_wheel_release.py /app/install_wheel_release.py
+COPY deploy/terminal/wheel-pin.json /app/wheel-pin.json
+# BUILD BLOCKED on actual immutable wheel artifact delivery into this context.
+# No source overlay / ad hoc wheel build / network download / version fallback.
+COPY deploy/wheel_artifacts/ /app/wheel_artifacts/
+RUN python /app/install_wheel_release.py --pin /app/wheel-pin.json --wheel-directory /app/wheel_artifacts --python /app/.venv/bin/python \
+    && rm -rf /app/wheel_artifacts /app/install_wheel_release.py
 USER 1000:1000
 EXPOSE 8000
 CMD ["/app/.venv/bin/python", "-m", "common.asgi"]

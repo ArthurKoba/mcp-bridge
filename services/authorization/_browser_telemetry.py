@@ -31,6 +31,10 @@ _PROJECT_BYTES_PER_MINUTE = 131_072
 
 class BrowserTelemetryAdmission:
     def __init__(self, app: PlatformApplication) -> None:
+        # Source hold: these original APIs join Identity, Project and quota
+        # counters through the rejected Authorization-global SQL Session.
+        # They must never become an alternative public telemetry route.
+        raise RuntimeError("global browser admission retired; use isolated owner ingest")
         self.app = app
 
     async def _current_opt_in(self, tx: AsyncSession, caller: CallerPrincipal) -> UserRow:

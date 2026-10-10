@@ -2,20 +2,14 @@ x-watch-path-coolify:
   - "deploy/admin-api/Dockerfile"
   - "deploy/admin-api/docker-compose.yaml"
   - "deploy/admin-api/docker-compose.coolify.yaml"
-  - "pyproject.toml"
-  - "uv.lock"
-  - "services/common/**"
-  - "services/authorization/**"
-  - "services/identity/**"
-  - "services/teams/**"
-  - "services/projects/**"
-  - "services/agents/**"
-  - "services/admin-api/src/**"
+  - "deploy/admin-api/Dockerfile.dockerignore"
+  - "deploy/admin-api/wheel-pin.json"
+  - "deploy/install_wheel_release.py"
 
 # Coolify override for a single independent Git-backed Application.
 # Coolify variable discovery happens before resolving extends; mirror env keys.
 # Shared values resolve from approved Coolify Team/Environment scopes; no secret value is stored in Git.
-# Public FQDN is provisioned, but protected API routes remain denied pending C1-B2/C2.
+# Public FQDN exists; BFF must never access a shared domain DB. Protected routes stay C1-B2/C2 denied.
 services:
   briareus-admin-api:
     extends:
@@ -28,11 +22,6 @@ services:
       SERVICE_NAMESPACE: "${SERVICE_NAMESPACE:-briareus}"
       DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-development}"
       OTEL_SERVICE_NAME: "admin-api"
-      POSTGRES_HOST: "briareus-postgres"
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: "briareus_dev"
-      POSTGRES_USER: "${POSTGRES_USER:?}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
       SERVICE_URL_BRIAREUS_ADMIN_API_8000: "/"
 networks:
   briareus:

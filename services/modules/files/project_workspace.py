@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from modules.project_runtime import ProjectAction, ProjectPermit
+from modules.project_runtime.authorization import ProjectOwnerFence
 from modules.project_runtime.workspace_roots import (
     _DIR_FLAGS,
     ProjectFileError,
@@ -150,6 +151,8 @@ class ProjectFileSnapshot:
     size_bytes: int
     sha256: str
     _fd: int
+    signed_operation_uuid: UUID | None = None
+    signed_owner_fence: ProjectOwnerFence | None = None
 
     def read_chunk(self, offset: int, length: int) -> bytes:
         if self._fd < 0:
@@ -180,6 +183,7 @@ class ProjectFileWriteStage:
         session_uuid: UUID,
         project_access_revision: str | None,
         agent_session_version: int,
+        owner_fence: ProjectOwnerFence,
         destination: str,
         name: str,
         temporary: str,
@@ -193,6 +197,9 @@ class ProjectFileWriteStage:
         self.session_uuid = session_uuid
         self.project_access_revision = project_access_revision
         self.agent_session_version = agent_session_version
+        if not isinstance(owner_fence, ProjectOwnerFence) or not owner_fence.valid():
+            raise ProjectFileError("FILE_STAGE_SIGNED_OWNER_FENCE_REQUIRED")
+        self.owner_fence = owner_fence
         self.destination = destination
         self._name = name
         self._temporary = temporary
@@ -227,6 +234,8 @@ class ProjectFileWriteStage:
             or info.st_ino != self._inode
             or info.st_nlink != 1
             or info.st_size != self._size
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
             or destination is None
             or not stat.S_ISREG(destination.st_mode)
             or destination.st_dev != info.st_dev
@@ -234,6 +243,9 @@ class ProjectFileWriteStage:
             or destination.st_nlink != 1
             or destination.st_size != info.st_size
             or destination.st_ctime_ns != info.st_ctime_ns
+            or destination.st_mtime_ns != info.st_mtime_ns
+            or destination.st_uid != info.st_uid
+            or destination.st_mode & 0o077
         ):
             raise ProjectFileError("FILE_STAGE_CHANGED_AFTER_COMMIT")
         return hashlib.sha256(
@@ -267,6 +279,7 @@ class ProjectFileWriteStage:
             or permit.session_uuid != self.session_uuid
             or permit.project_access_revision != self.project_access_revision
             or permit.decision_version != self.agent_session_version
+            or permit.owner_fence != self.owner_fence
         ):
             raise ProjectFileError("FILE_STAGE_PERMISSION_DENIED")
         if (
@@ -339,8 +352,15 @@ class ProjectWorkspaceFiles:
 
     @staticmethod
     def _require_action(permit: ProjectPermit, action: ProjectAction) -> None:
-        if not isinstance(permit, ProjectPermit) or permit.action != action:
-            raise ProjectFileError("FILE_PERMISSION_DENIED")
+        if (
+            not isinstance(permit, ProjectPermit)
+            or permit.action != action
+            or not isinstance(permit.owner_fence, ProjectOwnerFence)
+            or not permit.owner_fence.valid()
+            or permit.expires_at.tzinfo is None
+            or permit.expires_at <= datetime.now(UTC)
+        ):
+            raise ProjectFileError("FILE_PERMISSION_OR_OWNER_FENCE_DENIED")
 
     @staticmethod
     @contextmanager
@@ -488,8 +508,10 @@ class ProjectWorkspaceFiles:
         expected_sha256: str = "",
     ) -> ProjectFileWriteStage:
         """Create a private append-only stream; no destination appears until commit."""
-        if permit.action != "files.write":
-            raise ProjectFileError("FILE_STAGE_PERMISSION_DENIED")
+        self._require_action(permit, "files.write")
+        owner_fence = permit.owner_fence
+        if not isinstance(owner_fence, ProjectOwnerFence) or not owner_fence.valid():
+            raise ProjectFileError("FILE_STAGE_SIGNED_OWNER_FENCE_REQUIRED")
         if expected_sha256 and (
             len(expected_sha256) != 64
             or any(char not in "0123456789abcdef" for char in expected_sha256)
@@ -516,6 +538,7 @@ class ProjectWorkspaceFiles:
                         session_uuid=permit.session_uuid,
                         project_access_revision=permit.project_access_revision,
                         agent_session_version=permit.decision_version,
+                        owner_fence=owner_fence,
                         destination=path,
                         name=parts[-1],
                         temporary=tmp_name,

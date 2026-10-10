@@ -6,6 +6,8 @@ import { browserTelemetry } from "@/features/platform/model/browser-telemetry"
 import { platformCutoverReadiness } from "@/features/platform/api/cutover-contract"
 import PageHeader from "@/shared/ui/PageHeader.vue"
 import Button from "@/shared/ui/Button.vue"
+import OwnerReadinessPanel from "@/features/platform/ui/OwnerReadinessPanel.vue"
+import { projectContext } from "@/features/platform/model/project-context"
 const {t}=useI18n()
 /** Bound in script setup so Vite replaces the compile-time manifest value;
  * template resolution must NOT look for a nonexistent _ctx global. */
@@ -42,6 +44,7 @@ function onLocaleChange(event: Event): void {
       </p>
       <Button variant="outline" size="sm" @click="browserTelemetry.clear()">{{t('platform.clearDiagnostics')}}</Button>
     </section>
+    <OwnerReadinessPanel v-if="projectContext.state.user?.active" />
     <section class="settings-card space-y-3">
       <h2 class="font-semibold">{{t('platform.serverSettings')}}</h2>
       <p role="status" class="text-sm text-muted-foreground">{{t('platform.cutoverDisabled')}}</p>

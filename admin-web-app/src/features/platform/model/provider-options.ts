@@ -27,6 +27,14 @@ const aliasPattern = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/
 const variableNamePattern = /^[A-Z_][A-Z0-9_]{0,127}$/
 export const validResourceAlias = (value: string) => aliasPattern.test(value.trim())
 export const validVariableName = (value: string) => variableNamePattern.test(value.trim().toUpperCase())
+/** Accepted A11 Catalog owner `_secret_digest` accepts 1..131072 UTF-8
+ * bytes. This is validation only; a signed current Catalog BFF grant and
+ * owner-local encryption/SSRF controls remain server responsibilities. */
+export function validCatalogValue(value:string):boolean {
+  if(!value)return false
+  const length=new TextEncoder().encode(value).byteLength
+  return length>=1&&length<=131_072
+}
 export function providerAuthTypes(provider: SourceProviderName): readonly string[] { return providerCatalog[provider] }
 export function sourceProviderOptions(value: SourceProviderDraft): Record<string, unknown> | null {
   if (!providerAuthTypes(value.provider).includes(value.authType)) return null

@@ -1,5 +1,6 @@
 import { reactive, readonly, watch } from "vue"
 import { projectContext } from "@/features/platform/model/project-context"
+import { refreshAuthenticatedProjection } from "@/features/platform/model/refresh-identity"
 import { browserTelemetry } from "@/features/platform/model/browser-telemetry"
 import { platformPort } from "@/features/platform/api/port"
 import { normalizeUiError } from "@/features/platform/model/errors"
@@ -19,6 +20,8 @@ let reconnectTimer = 0
 let connectionVersion = 0
 
 function teardown(resetRetry = true): void {
+  // A closed source stream cannot retain another principal's diagnostic data.
+  browserTelemetry.clear()
   ++connectionVersion
   window.clearTimeout(reconnectTimer)
   reconnectTimer = 0
@@ -44,7 +47,9 @@ function matches(event: ScopedEvent, scope: ScopeSelection): boolean {
 
 function canConnect(): boolean {
   const scope = projectContext.selection()
-  return Boolean(platformPort.value && platformPort.value.capabilities?.scopedRealtime === true && projectContext.state.user?.active && scope && scope.kind !== "account" && pageActivity.isActive())
+  return Boolean(platformPort.value?.bff&&platformPort.value.capabilities?.scopedRealtime===true&&
+    projectContext.coreOwnerReady()&&projectContext.state.user?.active&&scope&&
+    scope.kind!=="account"&&pageActivity.isActive())
 }
 
 function scheduleReconnect(): void {
@@ -62,7 +67,8 @@ async function connect(resetRetry = true): Promise<void> {
   teardown(resetRetry)
   const port = platformPort.value
   const scope = projectContext.selection()
-  if (!port || port.capabilities?.scopedRealtime !== true || !scope || scope.kind === "account" || !projectContext.state.user?.active) {
+  if(!port?.bff||port.capabilities?.scopedRealtime!==true||!scope||scope.kind==="account"||
+     !projectContext.coreOwnerReady()||!projectContext.state.user?.active){
     state.status = "blocked"
     return
   }
@@ -92,18 +98,12 @@ async function connect(resetRetry = true): Promise<void> {
       const securityChange = event.kind === "access-revoked" || event.kind === "permissions-changed"
       const globallyAddressed = securityChange && event.projectId === null && !event.teamId
       if (!matches(event, scope) && !globallyAddressed) return
-      if (securityChange) {
-        const actor = projectContext.state.user?.key
+      if(securityChange){
+        // A read-side event invalidates current permission; it is NOT an
+        // authenticated grant or complete Owner ACK. Reuse the one canonical
+        // current User AND four-owner refresh lifecycle.
         projectContext.selectNone()
-        const refreshGeneration = projectContext.state.revision
-        const refresh = new AbortController()
-        void port.auth.refresh(refresh.signal).then(projection => {
-          if (projectContext.state.revision !== refreshGeneration || projectContext.state.user?.key !== actor || projectContext.state.scope !== "choose-project") return
-          if (projection?.user.active && projection.user.userId === actor) projectContext.installServerProjection(projection)
-          else projectContext.clear()
-        }).catch(() => {
-          if (projectContext.state.revision === refreshGeneration && projectContext.state.user?.key === actor) projectContext.offline()
-        })
+        void refreshAuthenticatedProjection()
         return
       }
       state.lastEventAt = new Date().toISOString()
@@ -130,12 +130,17 @@ async function connect(resetRetry = true): Promise<void> {
   }
 }
 
-watch(() => [projectContext.state.revision, platformPort.value] as const, () => { void connect() }, { immediate: true })
-pageActivity.subscribe(active => {
+const stopSourceWatch=watch(()=>[
+  projectContext.state.revision,projectContext.coreOwnerReady(),platformPort.value,
+] as const,()=>{void connect()},{immediate:true})
+const stopActivity=pageActivity.subscribe(active=>{
   if (!active) teardown(false)
   else if (canConnect() && !stopSocket && !connectingController) void connect(false)
 })
 
+if(import.meta.hot)import.meta.hot.dispose(()=>{
+  stopSourceWatch();stopActivity();teardown();subscribers.clear()
+})
 function subscribe(listener: (event: ScopedEvent) => void): () => void {
   subscribers.add(listener)
   return () => { subscribers.delete(listener) }

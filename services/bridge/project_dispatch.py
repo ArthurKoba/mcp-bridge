@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass, replace
-from typing import Protocol
+from datetime import UTC, datetime
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from common.models import JsonObject
@@ -113,16 +114,69 @@ def _deny_raw_credentials(
         raise ProjectGatewayDispatchUnavailable("PROJECT_ARGUMENTS_INVALID")
 
 
-class ProjectAuthorizationReadinessPort(Protocol):
-    """Backend A10-only source verifier; no guessed REST or schema DDL.
+OwnerServiceName = Literal["identity", "access", "control", "catalog"]
+_OWNER_STORE: dict[OwnerServiceName, str] = {
+    "identity": "briareus_identity",
+    "access": "briareus_access",
+    "control": "briareus_platform",
+    "catalog": "briareus_resources",
+}
 
-    Implemented only after A10 accepts authenticated Authorization readiness
-    with verified expected Alembic head/version and fresh service identity.
-    Missing/down/upgrading/wrong-head state MUST reject before forwarding any
-    protected Project operation (including read/status and UNKNOWN retry).
+
+@dataclass(frozen=True, slots=True)
+class VerifiedOwnerReadiness:
+    """Recipient-bound read-only health, NOT bearer authorization.
+
+    `ProjectOwnerReadinessPort` must independently check actual pinned owner
+    signature, service transport, DB identity/role, exact installed migration
+    head and bounded readiness timestamp. This object alone proves nothing.
     """
 
-    async def require_current_schema_ready(self, invocation: ProjectInvocation) -> None: ...
+    owner: OwnerServiceName
+    database: str
+    schema_head: str
+    database_role: str
+    owner_service_id: UUID
+    expires_at: datetime
+
+
+class ProjectOwnerReadinessPort(Protocol):
+    """Require distinct verified current schema+role of EACH initial owner.
+
+    Backend A11+Deployment must define signed C2 transport/head contracts.
+    Neither Data PostgreSQL health nor historical global A10 migration counts.
+    No gateway SQL/Alembic DDL, no cached "ready" or env boolean fallback.
+    """
+
+    async def require_current_owner_schema(
+        self,
+        invocation: ProjectInvocation,
+        *,
+        owner: OwnerServiceName,
+    ) -> VerifiedOwnerReadiness: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedOwnerSchema:
+    """Accepted signed RELEASE manifest, never supplied by the DB itself."""
+
+    owner: OwnerServiceName
+    database: str
+    expected_head: str
+    expected_role: str
+    expected_service_id: UUID
+
+
+class ProjectOwnerReleaseManifestPort(Protocol):
+    """Version-locked artifact from reviewed A11+D4 release, not ENV/SQL.
+
+    The installed owner's own self-reported head/version cannot determine
+    which migration release is authorized. A separate trusted release manifest
+    must pin DB identity, role, exact accepted Alembic head and issuer ID.
+    Without it gateway refuses the complete protected Project operation.
+    """
+
+    async def expected_schema(self, owner: OwnerServiceName) -> ExpectedOwnerSchema: ...
 
 
 class ProjectToolClassifier(Protocol):
@@ -158,7 +212,8 @@ class ProjectGatewayDispatch:
         *,
         classifier: ProjectToolClassifier | None = None,
         forwarder: AuthenticatedProjectForwarder | None = None,
-        readiness: ProjectAuthorizationReadinessPort | None = None,
+        readiness: ProjectOwnerReadinessPort | None = None,
+        release_manifest: ProjectOwnerReleaseManifestPort | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
         if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 300:
@@ -168,6 +223,7 @@ class ProjectGatewayDispatch:
         self._classifier = classifier
         self._forwarder = forwarder
         self._readiness = readiness
+        self._release_manifest = release_manifest
 
     async def dispatch(
         self,
@@ -180,8 +236,8 @@ class ProjectGatewayDispatch:
     ) -> JsonObject:
         if self._classifier is None or self._forwarder is None:
             raise ProjectGatewayDispatchUnavailable("PROJECT_DISPATCH_NOT_CONFIGURED")
-        if self._readiness is None:
-            raise ProjectGatewayDispatchUnavailable("PROJECT_AUTHORIZATION_SCHEMA_NOT_READY")
+        if self._readiness is None or self._release_manifest is None:
+            raise ProjectGatewayDispatchUnavailable("PROJECT_OWNER_SCHEMAS_NOT_READY")
         expected_action = _PRIVATE_TOOL_ACTIONS.get((backend, tool))
         if expected_action is None:
             # Native Ghidra and arbitrary internal backends are NOT public.
@@ -192,19 +248,48 @@ class ProjectGatewayDispatch:
         _deny_raw_credentials(forwarded)
         forwarded_to_effect = False
         try:
-            # This does not create/upgrade any schema. Verified A10
-            # Authorization is the ONLY migrator; read-only health from Data
-            # PostgreSQL is not sufficient. A stale/wrong head fails closed.
+            # Gateway has ZERO SQL/migration privileges. Four independent
+            # initial authoritative DBs must each be on its own accepted
+            # owner-specific head and role; no former briareus_dev global head
+            # is an acceptable migration/readiness shortcut.
             try:
                 async with asyncio.timeout(min(self.timeout_seconds, 10.0)):
-                    await self._readiness.require_current_schema_ready(invocation)
+                    for name in ("identity", "access", "control", "catalog"):
+                        expected = await self._release_manifest.expected_schema(name)
+                        snapshot = await self._readiness.require_current_owner_schema(
+                            invocation,
+                            owner=name,
+                        )
+                        if (
+                            not isinstance(snapshot, VerifiedOwnerReadiness)
+                            or snapshot.owner != name
+                            or snapshot.database != _OWNER_STORE[name]
+                            or not isinstance(expected, ExpectedOwnerSchema)
+                            or expected.owner != name
+                            or expected.database != snapshot.database
+                            or not isinstance(expected.expected_head, str)
+                            or not isinstance(expected.expected_role, str)
+                            or not isinstance(snapshot.schema_head, str)
+                            or not isinstance(snapshot.database_role, str)
+                            or snapshot.schema_head != expected.expected_head
+                            or snapshot.database_role != expected.expected_role
+                            or not 1 <= len(snapshot.schema_head) <= 128
+                            or not 1 <= len(snapshot.database_role) <= 128
+                            or not isinstance(snapshot.owner_service_id, UUID)
+                            or snapshot.owner_service_id.version != 4
+                            or snapshot.owner_service_id != expected.expected_service_id
+                            or not isinstance(snapshot.expires_at, datetime)
+                            or snapshot.expires_at.tzinfo is None
+                            or snapshot.expires_at <= datetime.now(UTC)
+                        ):
+                            raise ProjectGatewayDispatchUnavailable(
+                                "PROJECT_OWNER_SCHEMA_REVISION_INVALID"
+                            )
             except Exception as exc:
-                # DB healthy != migrated Authorization ready. Never include
-                # Backend/schema SQL errors, secrets or a guessed revision in
-                # tool metadata. No mutating operation has started yet.
-                raise ProjectGatewayDispatchUnavailable(
-                    "PROJECT_AUTHORIZATION_SCHEMA_UNAVAILABLE"
-                ) from exc
+                # No owner-verified current head => deny BEFORE normalization,
+                # classifier, signed operation or any File/worker/provider
+                # side effect. Do not show SQL/transport error or auto-retry.
+                raise ProjectGatewayDispatchUnavailable("PROJECT_OWNER_SCHEMA_UNAVAILABLE") from exc
             async with asyncio.timeout(self.timeout_seconds):
                 action = await self._classifier.classify(backend, tool)
                 if action is None or action != expected_action:

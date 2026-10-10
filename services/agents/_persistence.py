@@ -17,10 +17,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import ControlBase
 
 
-class AgentIdentityRow(PlatformBase):
+class AgentIdentityRow(ControlBase):
     __tablename__ = "identities"
     __table_args__ = (
         UniqueConstraint("id", "project_id", name="uq_agent_project_identity"),

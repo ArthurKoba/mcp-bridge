@@ -1,3 +1,5 @@
+import type { AuthenticatedBffBoundary } from "@/features/platform/api/bff-boundary"
+
 /**
  * Normalized FRONTEND VIEW MODELS and dependency-injected ports, NOT REST DTOs.
  * A5 has accepted SOURCE development DTO/permission projections. The actual
@@ -32,6 +34,9 @@ export interface AuthenticatedUser {
 }
 export interface AvailableProject {
   projectId: PlatformProjectId
+  /** Backend A11 explicitly includes active/deleting/deleted. Unknown is NOT
+   * active and cannot be inferred from a cached Team membership list. */
+  lifecycleStatus?: "active"|"deleting"|"deleted"
   name: string
   owner: { kind: "user"; userId: UserId } | { kind: "team"; teamId: TeamId; teamName: string }
 }
@@ -45,8 +50,6 @@ export interface AccessProjection {
   permissions: Partial<Record<UiCapability, boolean>>
   /** Server-issued capabilities evaluated separately for each authorized Project. */
   projectPermissions?: Record<PlatformProjectId, Partial<Record<UiCapability, boolean>>>
-  /** A5 source permissions from verified ProjectActions. Unknown codes never imply UI grants. */
-  sourceProjectPermissionCodes?: Record<PlatformProjectId, string[]>
   /** Signed-in caller decisions bound to membership, owner and resource revisions. */
   projectDecisionVersions?: Record<PlatformProjectId, string>
   teamDecisionVersions?: Record<TeamId, string>
@@ -67,7 +70,10 @@ export interface QueryContext {
   /** A4 access decision revision from the current verified User snapshot. */
   decisionVersion?: string | null
 }
-export interface CommandContext extends QueryContext { idempotencyKey: string }
+/** Backend A11 requires TWO original immutable UUIDv4 identities: the
+ * operation_uuid and the printable Idempotency-Key. Neither may be regenerated
+ * by a response retry, route change, owner transfer or reconciliation. */
+export interface CommandContext extends QueryContext { idempotencyKey: string; operationUuid: string }
 /** A6 SOURCE idempotency status selectors; each is independently authorized. */
 export type SourceCommandTarget =
   | {kind:"project";id:PlatformProjectId}
@@ -75,11 +81,6 @@ export type SourceCommandTarget =
   | {kind:"project_resource";id:PlatformProjectId}
   | {kind:"resource";id:string;owner:ResourceOwner}
 export interface SourceCommandBinding {operation:string;target:SourceCommandTarget}
-export interface SourceCommandReceipt {
-  kind:SourceCommandTarget["kind"]
-  id:string;operation:string;state:"not_found"|"pending"|"completed"
-  outcomeHttpStatus:number|null;expiresAt:string|null;reconciliationRequired:boolean
-}
 export interface ListResult<T> {
   items: T[]
   /** A6 keyset continuation exists ONLY when source returned has_more. */
@@ -153,7 +154,7 @@ export interface AgentSessionRequestView {
   /** A local data-comparison key, NOT an unprovided server approval version. */
   snapshotKey?: string
   /** Source-based reason approval cannot be executed; no guessed server action. */
-  blockReason?: "missing-base-session" | "inactive-base-session" | "expired-request" | "missing-approval-rights"
+  blockReason?: "missing-base-session" | "inactive-base-session" | "expired-request" | "invalid-deadline" | "missing-approval-rights"
   allowedActions?: Partial<Record<UiCapability, boolean>>
 }
 export interface SessionSnapshot {
@@ -277,6 +278,12 @@ export interface ScopedRealtimePort {
 }
 
 export interface PlatformPort {
+  /** Single trusted BFF source interface; absent on accepted A10 private port. */
+  bff?: AuthenticatedBffBoundary
+  /** The following normalized public fields are a PRESENTATION FACADE over
+   * the reviewed BFF's explicit identity/access/control/catalog capabilities.
+   * No method is permission, a raw per-owner service URL or database client.
+   * `groupVerifiedBffCapabilities` enforces this typed composition boundary. */
   /** Explicit capability flags of the adapter transport, not of a User's permissions. */
   capabilities?: {
     candidateVerification: boolean
@@ -362,11 +369,6 @@ export interface PlatformPort {
   }
   providers?: {
     catalog(context:QueryContext):Promise<{providers:{provider:string;authTypes:string[];connectivityStatus:string}[];networkVerificationAvailable:boolean}>
-  }
-  /** A5 private Project-scoped command-status endpoint; never usable for global
-   * or Team-scoped idempotency keys, and NOT a mutation replay endpoint. */
-  commandStatus?: {
-    get(context:QueryContext,input:{operation:string;idempotencyKey:string;target:SourceCommandTarget}):Promise<SourceCommandReceipt>
   }
   /** Read-only operation summary adapter after accepted C1-B/C2; optional until then. */
   operations?: {

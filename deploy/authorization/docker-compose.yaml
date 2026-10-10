@@ -1,5 +1,5 @@
-# Portable private Authorization. Automatic migration belongs to its
-# normal ASGI startup, never to a sidecar, profile or one-shot operator job.
+# Private Authorization release: owns only briareus_access logical PostgreSQL DB.
+# Independent migration runs in normal ASGI owner lifespan, not a sidecar.
 services:
   briareus-authorization:
     build:
@@ -16,15 +16,16 @@ services:
       OTEL_SERVICE_NAME: "authorization"
       POSTGRES_HOST: "briareus-postgres"
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: "briareus_dev"
-      POSTGRES_USER: "${POSTGRES_USER:?}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+      POSTGRES_DB: "briareus_access"
+      POSTGRES_USER: "${ACCESS_POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${ACCESS_POSTGRES_PASSWORD:?}"
+      MIGRATION_POSTGRES_USER: "${ACCESS_MIGRATION_POSTGRES_USER:?}"
+      MIGRATION_POSTGRES_PASSWORD: "${ACCESS_MIGRATION_POSTGRES_PASSWORD:?}"
     expose:
       - "8000"
     networks:
       briareus:
         aliases: ["briareus-authorization"]
-    # Liveness is NOT security/readiness: /health/ready stays 503 until C2.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "--max-time", "2", "http://127.0.0.1:8000/health/live"]
       interval: 10s

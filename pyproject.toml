@@ -1,6 +1,6 @@
 [project]
 name = "briareus"
-version = "0.1.0"
+version = "0.1.0+a13.sd602acaa4554edc5"
 description = "Briareus project-scoped Authorization, Admin and isolated runtime services."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -81,10 +81,8 @@ packages = [
 "services/admin-api/src/presentation" = "presentation"
 "services/admin-api/src/platform_runtime.py" = "platform_runtime.py"
 "services/admin-api/src/api_errors.py" = "api_errors.py"
-# Authorization is the sole migrator. Ship frozen Alembic source in its
-# wheel so D4 needs no duplicate schema-init image, operator SQL or sidecar.
-"scripts/alembic.ini" = "authorization/alembic.ini"
-"scripts/alembic_greenfield" = "authorization/alembic_greenfield"
+# Each source-owner has its own frozen Alembic history (no universal migrator).
+"scripts/alembic_owners" = "common/alembic_owners"
 
 [tool.ruff]
 src = ["services"]

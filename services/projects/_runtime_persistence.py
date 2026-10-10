@@ -13,7 +13,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -23,14 +22,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from common.platform_db import PlatformBase
+from common.platform_db import RuntimeBase
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-class RuntimeSessionRow(PlatformBase):
+class RuntimeSessionRow(RuntimeBase):
     __tablename__ = "sessions"
     __table_args__ = (
         CheckConstraint(
@@ -72,15 +71,9 @@ class RuntimeSessionRow(PlatformBase):
         {"schema": "runtime"},
     )
     runtime_session_uuid: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
-    agent_session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
-    actor_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("identity.users.id", ondelete="RESTRICT")
-    )
+    project_id: Mapped[UUID] = mapped_column()
+    agent_session_uuid: Mapped[UUID] = mapped_column()
+    actor_user_id: Mapped[UUID] = mapped_column()
     kind: Mapped[str] = mapped_column(String(20))
     owner_service_id: Mapped[UUID] = mapped_column()
     owner_instance: Mapped[UUID] = mapped_column(nullable=False)
@@ -99,7 +92,7 @@ class RuntimeSessionRow(PlatformBase):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class RuntimeJobRow(PlatformBase):
+class RuntimeJobRow(RuntimeBase):
     __tablename__ = "jobs"
     __table_args__ = (
         ForeignKeyConstraint(
@@ -130,16 +123,13 @@ class RuntimeJobRow(PlatformBase):
     )
     job_uuid: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     runtime_session_uuid: Mapped[UUID] = mapped_column(nullable=False)
-    project_id: Mapped[UUID] = mapped_column(
-        ForeignKey("projects.projects.id", ondelete="RESTRICT")
-    )
+    # Additive runtime_0002; legacy versioned jobs cannot infer their original
+    # lease nonce. A NULL remains unreconcilable until independently attested.
+    lease_nonce: Mapped[UUID | None] = mapped_column(nullable=True)
+    project_id: Mapped[UUID] = mapped_column()
     owner_service_id: Mapped[UUID] = mapped_column(nullable=False)
-    actor_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("identity.users.id", ondelete="RESTRICT")
-    )
-    agent_session_uuid: Mapped[UUID] = mapped_column(
-        ForeignKey("sessions.agent_sessions.session_uuid", ondelete="RESTRICT")
-    )
+    actor_user_id: Mapped[UUID] = mapped_column()
+    agent_session_uuid: Mapped[UUID] = mapped_column()
     idempotency_digest: Mapped[str] = mapped_column(String(64))
     request_fingerprint: Mapped[str] = mapped_column(String(64))
     operation: Mapped[str] = mapped_column(String(128))

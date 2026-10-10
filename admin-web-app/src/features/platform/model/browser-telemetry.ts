@@ -133,20 +133,31 @@ function navigation(area:string):void {record("navigation",area,"ok")}
 function performance(durationMs:number):void {record("performance","app","ok",durationMs)}
 function lifecycle(outcome:DiagnosticOutcome):void {record("lifecycle","app",outcome)}
 
-// Project/Team/User transition invalidates all buffered events and budgets.
-// Same browser tab can never flush events gathered under a former principal.
-projectContext.onTransition(clear)
+// A new authenticated principal or logout REVOKES opt-in, not just buffered
+// telemetry. Same-User Team/Project scope switches clear events while leaving
+// that User's current-tab choice intact; no User inherits prior User consent.
+let consentActor=projectContext.state.user?.active?projectContext.state.user.key:null
+const stopPrincipalTransitions=projectContext.onTransition(()=>{
+  const nextActor=projectContext.state.user?.active?projectContext.state.user.key:null
+  if(nextActor!==consentActor){
+    consentActor=nextActor
+    uiPreferences.diagnosticsConsent.value=false
+  }
+  clear()
+})
 const retentionTimer=window.setInterval(pruneExpired,60_000)
 window.addEventListener("pagehide",clear)
+const stopConsentWatch=watch(uiPreferences.diagnosticsConsent,enabled=>{
+  state.consent=enabled
+  if(!enabled)clear()
+},{flush:"sync"})
 if(import.meta.hot)import.meta.hot.dispose(()=>{
+  stopPrincipalTransitions()
+  stopConsentWatch()
   window.clearInterval(retentionTimer)
   window.removeEventListener("pagehide",clear)
   clear()
 })
-watch(uiPreferences.diagnosticsConsent,enabled=>{
-  state.consent=enabled
-  if(!enabled)clear()
-}, {flush:"sync"})
 
 export const browserTelemetry={
   state:readonly(state),clear,error,read,write,navigation,performance,lifecycle,

@@ -37,7 +37,8 @@ from ._service_transport import PrivateServiceAuthorizationController
 
 
 def platform_metadata() -> MetaData:
-    """Import domain-owned ORM models into shared metadata (offline-safe)."""
+    """Retired: cross-owner metadata is never a valid SQL or migration target."""
+    raise RuntimeError("Authorization-global platform metadata is retired; use owner_metadata")
     from agents import _persistence as _agents
     from authorization import _browser_telemetry_persistence as _browser_telemetry
     from authorization import _platform_persistence as _authorization
@@ -103,6 +104,9 @@ def compose_platform(
     signed_authorization: ServiceIdentitySettings | None = None,
     first_admin_operator_gate: UnixFirstAdminOperatorGate | None = None,
 ) -> PlatformServices:
+    raise RuntimeError(
+        "single-DB PlatformServices composition is forbidden; use verified owner ports"
+    )
     platform_metadata()
     database = PlatformDatabase(settings)
     application = PlatformApplication(database)

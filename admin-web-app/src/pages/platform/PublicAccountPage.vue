@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 import { platformPort } from "@/features/platform/api/port"
+import { A11_ACCEPTED_SOURCE_ONLY } from "@/features/platform/api/a11-owner-bff-source"
 import { normalizeUiError, type UiError } from "@/features/platform/model/errors"
 import { oneUseCommands, type OneUseAttempt } from "@/features/platform/model/one-use-commands"
 import Button from "@/shared/ui/Button.vue"
@@ -17,10 +18,12 @@ const uncertain=ref(false)
 let controller:AbortController|null=null
 let activeAttempt:OneUseAttempt|null=null
 let generation=0
-const enabled=computed(()=>Boolean(props.mode==="invitation"?platformPort.value?.auth.register:platformPort.value?.auth.redeemPasswordReset))
+const enabled=computed(()=>Boolean(A11_ACCEPTED_SOURCE_ONLY.publicOneUseStatusApproved&&
+  platformPort.value?.bff&&
+  (props.mode==="invitation"?platformPort.value.auth.register:platformPort.value.auth.redeemPasswordReset)))
 const valid=computed(()=>{
   const pwd=fields.password.length>=12 && fields.password.length<=4096 && fields.confirm===fields.password
-  if(props.mode==="reset")return fields.token.trim().length>0 && pwd
+  if(props.mode==="reset")return fields.token.trim().length>=10&&fields.token.trim().length<=512&&pwd
   return fields.token.trim().length>=10 && fields.token.trim().length<=512 &&
     fields.username.trim().length>=3 && fields.username.trim().length<=128 && pwd
 })
@@ -39,7 +42,16 @@ function clearSensitive() {
   uncertain.value=false
 }
 watch(() => props.mode, () => { clearSensitive(); completed.value=false })
-onMounted(() => { if (props.initialToken) emit("tokenCopied") })
+onMounted(() => {
+  if(props.initialToken)emit("tokenCopied")
+  if(!enabled.value){
+    // A link opened before approved first-user/one-use BFF cannot be
+    // consumed or kept in a dormant form and must never fake completion.
+    fields.token=""
+    fields.password=""
+    fields.confirm=""
+  }
+})
 onBeforeUnmount(clearSensitive)
 async function submit(){
   if(!enabled.value || !valid.value || busy.value || uncertain.value || completed.value)return
@@ -79,22 +91,24 @@ async function submit(){
       return
     }
     await invoke(current.signal,attempt.idempotencyKey)
-    oneUseCommands.acknowledged(attempt)
+    // Source A11 does not expose a signed owner-global one-use outcome.
+    // Even a successful local HTTP response cannot prove that redemption
+    // committed and permission/grant revocation reached all owners.
+    oneUseCommands.uncertain(attempt)
     activeAttempt=null
     if(current.signal.aborted||props.mode!==mode||platformPort.value!==port||controller!==current)return
-    completed.value=true
+    uncertain.value=true
   }catch(cause){
     const normalized=normalizeUiError(cause,"mutation")
     if(activeAttempt){
-      // A definite 400/422 input rejection did not provide a successful
-      // one-use command result; all lost/unknown outcomes remain locked.
-      if(normalized.kind==="invalid")oneUseCommands.rejected(activeAttempt)
-      else oneUseCommands.uncertain(activeAttempt)
+      // Until Backend publishes an independently verified signed one-use
+      // rejection, even a 400/422 AFTER invocation might follow a commit.
+      oneUseCommands.uncertain(activeAttempt)
       activeAttempt=null
     }
     if(!current.signal.aborted&&controller===current&&props.mode===mode&&platformPort.value===port){
       error.value=normalized
-      uncertain.value=normalized.kind==="uncertain"||normalized.kind==="conflict"||normalized.kind==="unknown"
+      uncertain.value=true
     }
   }finally{
     if(controller===current){
@@ -112,11 +126,11 @@ async function submit(){
   <section class="w-full max-w-md space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
     <h1 class="text-lg font-semibold">{{mode==='invitation'?t('platform.registerTitle'):t('platform.resetTitle')}}</h1>
     <p class="text-xs text-muted-foreground">{{mode==='invitation'?t('platform.registerHint'):t('platform.resetHint')}}</p>
-    <div v-if="!enabled" role="status" class="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">{{t('platform.pendingContract')}}</div>
+    <div v-if="!enabled" role="status" class="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">{{t('platform.oneUseSourceNotApproved')}}</div>
     <p v-if="completed" role="status" class="text-sm">{{t('platform.publicComplete')}}</p>
     <p v-if="uncertain" role="alert" class="rounded-md border border-destructive/30 p-3 text-sm text-destructive">{{t('platform.publicMutationUncertain')}}</p>
     <form v-else-if="!completed" class="space-y-3" @submit.prevent="submit">
-      <label class="block text-xs">{{mode==='invitation'?t('platform.invitationToken'):t('platform.resetToken')}}<input v-model="fields.token" class="field mt-1" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" :maxlength="mode==='invitation'?512:undefined" :disabled="!enabled || busy" required /></label>
+      <label class="block text-xs">{{mode==='invitation'?t('platform.invitationToken'):t('platform.resetToken')}}<input v-model="fields.token" class="field mt-1" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="512" :disabled="!enabled || busy" required /></label>
       <label v-if="mode==='invitation'" class="block text-xs">{{t('app.username')}}<input v-model="fields.username" class="field mt-1" autocomplete="username" minlength="3" maxlength="128" :disabled="!enabled || busy" required /></label>
       <label class="block text-xs">{{t('platform.newPassword')}}<input v-model="fields.password" class="field mt-1" type="password" autocomplete="new-password" minlength="12" maxlength="4096" :disabled="!enabled || busy" required /></label>
       <label class="block text-xs">{{t('platform.confirmPassword')}}<input v-model="fields.confirm" class="field mt-1" type="password" autocomplete="new-password" minlength="12" maxlength="4096" :disabled="!enabled || busy" required /></label>
