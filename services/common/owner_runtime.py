@@ -20,8 +20,9 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from starlette.responses import Response
 
-from common.owner_migrations import migrate_owner, verify_owner
-from common.platform_db import OwnerDatabaseSettings, OwnerName, PlatformDatabase
+from common.owner_migrations import migrate_owner, owner_config, verify_owner
+from common.owner_startup_diagnostics import Phase, safe_owner_startup_diagnostic
+from common.platform_db import OWNER_DB_NAMES, OwnerDatabaseSettings, OwnerName, PlatformDatabase
 from common.platform_telemetry import BriareusHttpTelemetry
 
 logger = logging.getLogger(__name__)
@@ -78,19 +79,31 @@ def create_owner_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         nonlocal current, database, telemetry
         current = OwnerReadiness(owner=owner, state="database_wait")
+        phase: Phase = "settings"
         try:
             local = settings or OwnerDatabaseSettings(owner=owner)
             if local.owner != owner:
                 raise RuntimeError("owner runtime got foreign DB settings")
+            # db_create is creation of the SQLAlchemy ENGINE only; it
+            # NEVER creates a PostgreSQL database, role or schema.
+            phase = "db_create"
             database = PlatformDatabase(local)
             telemetry = BriareusHttpTelemetry("authorization" if owner == "access" else owner)
             telemetry.started()
+            # D11 owner decision: exactly ONE per-DB principal has scoped DDL
+            # and business privileges. Old second MIGRATION_POSTGRES_* path is
+            # retired. Never reach for a shared Data DBA or alternate DSN.
+            phase = "alembic_upgrade"
+            owner_config(owner)
             current = current.model_copy(update={"state": "migrating"})
-            # One owner-scoped PostgreSQL role applies only this owner's
-            # reviewed Alembic revisions during the normal trusted startup.
-            # PostgreSQL provisioning must first create its logical DB/role.
-            result = await migrate_owner(database, local)
-            await verify_owner(database, local)
+
+            def diagnostic_phase(value: Phase) -> None:
+                nonlocal phase
+                phase = value
+
+            await migrate_owner(database, local, phase_change=diagnostic_phase)
+            phase = "owner_schema_verify"
+            result = await verify_owner(database, local)
             current = current.model_copy(
                 update={
                     "state": "security_pending",
@@ -98,16 +111,42 @@ def create_owner_app(
                     "table_count": result.tables,
                 }
             )
+            phase = "ingress_attestation"
             if trusted_ingress is not None:
                 if not await _attest_ingress():
                     raise RuntimeError("owner ingress trust attestation denied")
                 current = current.model_copy(update={"state": "ready", "security_ready": True})
             logger.info("owner schema verified owner=%s head=%s", owner, result.revision)
             yield
-        except Exception:
+        except Exception as error:
+            reason = safe_owner_startup_diagnostic(phase=phase, error=error)
             current = OwnerReadiness(owner=owner, state="failed")
-            logger.error("owner startup failed closed owner=%s", owner)
-            raise RuntimeError("owner schema or service trust unavailable") from None
+            # Only fixed allowlisted types, SQLSTATE and phases, never raw
+            # exception/traceback/DSN/password/statement/bind parameters.
+            # The OTLP root LoggingHandler is initialized by
+            # BriareusHttpTelemetry and supplies the pinned service.name,
+            # deployment.environment.name and installed wheel version.
+            service_name = "authorization" if owner == "access" else owner
+            environment = (
+                telemetry.settings.environment if telemetry is not None else "unconfigured"
+            )
+            logger.error(
+                "owner_startup_failure owner=%s db=%s phase=%s "
+                "category=%s exception=%s sqlstate=%s service.name=%s "
+                "deployment.environment=%s",
+                owner,
+                OWNER_DB_NAMES[owner],
+                reason.phase,
+                reason.reason,
+                reason.exception_type,
+                reason.sqlstate or "none",
+                service_name,
+                environment,
+            )
+            raise RuntimeError(
+                f"owner startup unavailable owner={owner} phase={reason.phase} "
+                f"reason={reason.reason} sqlstate={reason.sqlstate or 'none'}"
+            ) from None
         finally:
             if telemetry is not None:
                 telemetry.shutdown()
