@@ -154,10 +154,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     tasks = [
         asyncio.create_task(_realtime_state_loop(), name="management-realtime-state"),
         asyncio.create_task(_maintenance_loop(), name="management-maintenance"),
-        asyncio.create_task(
-            snapshot_refresher.workspace_loop(),
-            name="management-workspace-snapshots",
-        ),
+        # Disable automatic full-workspace traversal: millions of inodes
+        # on the shared volume can trigger host-wide memory pressure.
         asyncio.create_task(
             snapshot_refresher.reverse_loop(),
             name="management-reverse-snapshots",
