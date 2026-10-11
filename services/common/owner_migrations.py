@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -18,15 +19,24 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.dialects.postgresql import dialect
 from sqlalchemy.engine import Connection
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from common.owner_registry import owner_metadata
+from common.owner_startup_diagnostics import Phase, is_permanent_connection_failure, safe_sqlstate
 from common.platform_db import OWNER_DB_NAMES, OwnerDatabaseSettings, OwnerName, PlatformDatabase
 
 
 class OwnerSchemaRejected(RuntimeError):
     """Unavailable or unverified authoritative schema; deny protected access."""
+
+
+class OwnerDatabaseConnectionUnavailable(OwnerSchemaRejected):
+    """Sanitized startup connectivity failure; never retains raw DB exception."""
+
+    def __init__(self, sqlstate: str | None) -> None:
+        self.sqlstate = sqlstate
+        super().__init__("owner database connection unavailable")
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,12 +311,25 @@ def _verify(conn: Connection, settings: OwnerDatabaseSettings) -> int:
     return len(metadata.tables)
 
 
-def _apply(conn: Connection, cfg: Config, settings: OwnerDatabaseSettings) -> OwnerSchemaStatus:
+def _apply(
+    conn: Connection,
+    cfg: Config,
+    settings: OwnerDatabaseSettings,
+    phase_change: Callable[[Phase], None] | None = None,
+) -> OwnerSchemaStatus:
+    if phase_change is not None:
+        phase_change("owner_schema_verify")
     _identity(conn, settings)
+    if phase_change is not None:
+        phase_change("alembic_upgrade")
     current = _revision(conn)
     if current != _head(settings.owner):
         cfg.attributes["connection"] = conn
         command.upgrade(cfg, "head")
+    # Within the same owner-only Alembic transaction, distinguish a DDL
+    # exception from a subsequent ORM/head/constraints/source-schema check.
+    if phase_change is not None:
+        phase_change("owner_schema_verify")
     return OwnerSchemaStatus(
         settings.owner,
         _head(settings.owner),
@@ -315,22 +338,38 @@ def _apply(conn: Connection, cfg: Config, settings: OwnerDatabaseSettings) -> Ow
     )
 
 
-async def migrate_owner(db: PlatformDatabase, settings: OwnerDatabaseSettings) -> OwnerSchemaStatus:
-    """One owner, one session advisory lock across transaction and commit check."""
+async def migrate_owner(
+    db: PlatformDatabase,
+    settings: OwnerDatabaseSettings,
+    *,
+    phase_change: Callable[[Phase], None] | None = None,
+) -> OwnerSchemaStatus:
+    """One owner, locked DDL, no DBA fallback; optional safe diagnostic stage."""
     cfg = owner_config(settings.owner)
     conn = None
     held = False
     lock = {"namespace": 140995, "resource": 49001 + list(OWNER_DB_NAMES).index(settings.owner)}
     try:
+        if phase_change is not None:
+            phase_change("connect")
         deadline = time.monotonic() + 35
+        last_connect_sqlstate: str | None = None
         while time.monotonic() < deadline:
             try:
                 conn = await asyncio.wait_for(db.engine.connect(), timeout=5)
                 break
-            except (OSError, OperationalError, TimeoutError):
+            except (OSError, DBAPIError, TimeoutError) as error:
+                # Missing logical DB, invalid role/password and denied schema
+                # are NOT transient. Never hide the original SQLSTATE behind
+                # another 35 seconds of identical attempts or log DBAPI args.
+                last_connect_sqlstate = safe_sqlstate(error)
+                if is_permanent_connection_failure(error):
+                    raise OwnerDatabaseConnectionUnavailable(last_connect_sqlstate) from None
                 await asyncio.sleep(1)
         if conn is None:
-            raise OwnerSchemaRejected("owner database unavailable during bounded startup")
+            raise OwnerDatabaseConnectionUnavailable(last_connect_sqlstate) from None
+        if phase_change is not None:
+            phase_change("migration_lock")
         async with asyncio.timeout(210):
             deadline = time.monotonic() + 70
             while time.monotonic() < deadline:
@@ -345,10 +384,14 @@ async def migrate_owner(db: PlatformDatabase, settings: OwnerDatabaseSettings) -
                 await asyncio.sleep(1)
             if not held:
                 raise OwnerSchemaRejected("owner startup migration lock timeout")
+            if phase_change is not None:
+                phase_change("alembic_upgrade")
             async with conn.begin():
                 await conn.execute(text("SELECT set_config('statement_timeout', '90000ms', true)"))
                 await conn.execute(text("SELECT set_config('lock_timeout', '75000ms', true)"))
-                result = await conn.run_sync(_apply, cfg, settings)
+                result = await conn.run_sync(_apply, cfg, settings, phase_change)
+            if phase_change is not None:
+                phase_change("owner_schema_verify")
             async with conn.begin():
                 if (
                     await conn.scalar(text("SELECT version_num FROM public.alembic_version"))
@@ -382,6 +425,11 @@ async def verify_owner(db: PlatformDatabase, settings: OwnerDatabaseSettings) ->
             return await conn.run_sync(_read_owner, settings)
     except OwnerSchemaRejected:
         raise
+    except (DBAPIError, OSError, TimeoutError) as error:
+        # Even after a successful migration, an expired/revoked owner role
+        # or unavailable DB must preserve its SAFE SQLSTATE for P0 incident
+        # triage rather than being reported as a mystery schema mismatch.
+        raise OwnerDatabaseConnectionUnavailable(safe_sqlstate(error)) from None
     except Exception:
         raise OwnerSchemaRejected("owner read-only schema verification unavailable") from None
 
