@@ -294,14 +294,14 @@ Idle TTL и hard TTL **различны**. Активность продлева
 **Уточнённое целевое решение:** не выделять новый поддомен для каждого MCP-модуля и не оставлять все endpoint'ы в корне. У публичной Briareus-платформы один origin и одно пространство маршрутов; отдельные модули сгруппированы по семействам. Канонический шаблон адреса:
 
 ```text
-https://briareus.koba-nexus.ru/<family>/<module>/mcp
+https://briaray.kobanexus.ru/<family>/<module>/mcp
 ```
 
-Для семейства инструментов принято имя **`hands`**. Публичное имя модуля **`file`** (единственное число) не требует переименования внутреннего Files-сервиса.
+Для семейства инструментов принято имя **`hands`**. Каноническое публичное имя файлового модуля — **`files`** (множественное число), совпадает с именем внутреннего Files-сервиса. Публичные `file` и `/hands/files/mcp` не считаются действующими псевдонимами.
 
 | Семейство / модуль | Целевой публичный MCP path | Независимый runtime / назначение |
 | --- | --- | --- |
-| Hands / File | `/hands/file/mcp` | Files |
+| Hands / File | `/hands/files/mcp` | Files |
 | Hands / Web | `/hands/web/mcp` | Web |
 | Hands / Terminal | `/hands/terminal/mcp` | Terminal |
 | Hands / Analysis | `/hands/analysis/mcp` | Analysis/Reverse, после определения принятой внутренней границы |
@@ -311,15 +311,21 @@ https://briareus.koba-nexus.ru/<family>/<module>/mcp
 
 `/<family>/<module>/mcp` — **общий формат**, а не обязательство заранее создавать все возможные модули или семейства. Следующие семейства добавляются без изменения существующего пути `hands`. Не вводить обязательный общий `/hands/mcp`, псевдосервис для каталогов или по дополнительному публичному домену на каждого провайдера. При росте набора модулей расширяется таблица маршрутов Gateway, а не перечень публичных доменов.
 
-**Разделение маршрутов того же публичного origin:** `/` — пользовательская Panel; `/api/*` — её типизированный HTTP API; OAuth issuer/login/token и `/.well-known/*` имеют отдельные зарезервированные пути по принятому стандартному контракту Authorization; `/<family>/<module>/mcp` — MCP. Приоритет специфичных API/OAuth/MCP-маршрутов над SPA fallback обязателен. Конкретные пути OAuth issuer/discovery утверждаются и проверяются вместе с OAuth implementation; нельзя придумать нестандартный fallback, нарушающий клиентов.
+**Разделение маршрутов того же публичного origin:** `/` перенаправляет на `/panel/`, `/panel/*` — пользовательская **Panel** (не «админка», доступна авторизованным обычным пользователям в пределах прав); `/api/*` — отдельный типизированный HTTP API/BFF модуль; OAuth issuer/login/token и `/.well-known/*` имеют отдельные зарезервированные пути по принятому стандартному контракту Authorization; `/<family>/<module>/mcp` — MCP. Приоритет специфичных API/OAuth/MCP-маршрутов над SPA fallback обязателен. Конкретные пути OAuth issuer/discovery утверждаются и проверяются вместе с OAuth implementation; нельзя придумать нестандартный fallback, нарушающий клиентов.
 
-**Gateway** — один публичный вход и тонкий MCP reverse-proxy/маршрутизатор. Он сопоставляет проверенный внешний path с конкретным внутренним runtime по Docker DNS и его действующему MCP endpoint (например, внешний `/hands/file/mcp` → внутренний Files `/mcp`, когда такой ingress принят). Не содержит бизнес-логики Files/Web/Terminal и не становится владельцем данных или секретов. Он отвечает также за обязательные проверки identity, audience/resource, Project и AgentSession/grant перед проксированием; HTTP/path forwarding и MCP discovery должны сохранять клиенту корректный внешний URL. Сбой одного provider не должен останавливать остальных.
+**Gateway** — один публичный вход и тонкий MCP reverse-proxy/маршрутизатор. Он сопоставляет проверенный внешний path с конкретным внутренним runtime по Docker DNS и его действующему MCP endpoint (например, внешний `/hands/files/mcp` → внутренний Files `/mcp`, когда такой ingress принят). Не содержит бизнес-логики Files/Web/Terminal и не становится владельцем данных или секретов. Он отвечает также за обязательные проверки identity, audience/resource, Project и AgentSession/grant перед проксированием; HTTP/path forwarding и MCP discovery должны сохранять клиенту корректный внешний URL. Сбой одного provider не должен останавливать остальных.
 
 **Authorization и безопасность:** единый публичный origin не объединяет Authorization, Identity, Gateway и провайдеров в один процесс/БД. Для каждого публичного MCP path должна быть собственная корректная resource identifier/audience и working OAuth protected-resource metadata/discovery; issuer/token flow обслуживает Authorization через утверждённый маршрут. Совпадение origin не разрешает обхода отдельной проверки полномочий. Переход с отдельного issuer host на общий origin требует принятого issuer/redirect/JWKS-контракта, а не одной переписи URL.
 
 **Миграционный статус:** это новое TARGET-SOURCE-решение о публичной адресации вместо прежней модели `web.mcp.*`, `files.mcp.*` и плоских `/files/mcp` и т. п. Старые legacy aliases не нужны для greenfield Briareus, но существующие проверенные Admin UI/API домены сохраняются до работоспособного Gateway/Panel/OAuth cutover. Сейчас Gateway ещё fail-closed, маршруты не активированы; этот раздел **не подтверждает наличие DNS, TLS, действующего reverse-proxy, авторизации или клиентской приёмки**. Git/Compose/Coolify/запущенные ресурсы менять отдельно и только с собственными gate.
 
 У каждого публичного направления остаются название и единообразная SVG-иконка для MCP-клиентов; иконка и отображаемое имя не влияют на authority ресурса.
+
+**Финальное уточнение владельца (2026-10-11):** домен `briaray.kobanexus.ru` — целевое публичное имя, не доказательство созданного DNS/TLS; одна публичная точка входа Gateway должна проксировать `/` → `/panel/`, `/panel/*` → отдельно развёрнутый Panel UI, `/api/*` → отдельно развёрнутый API/BFF и `/hands/<module>/mcp` → внутренние MCP runtime по Docker DNS. OAuth discovery/issuer/token endpoints остаются зарезервированными маршрутами этой же точки входа с неизменяемой проверкой resource/audience/redirect. Все внешние потоковые MCP (Streamable HTTP/SSE), обычные HTTP и WebSocket должны корректно сохранять method/path/Host/Origin/forwarded TLS, отключение/reconnect и graceful-drain; Gateway не повторяет автоматически неизвестную по результату мутацию, не журналирует bearer/аргументы инструмента. **Никаких новых публичных доменов для Panel, API или отдельных Hands.** До подтверждённого нового TLS/Gateway ingress не удалять существующий работающий адрес и не отключать сервисы. Gateway source ещё не принят в работающую систему.
+
+**Язык Gateway:** текущий Python/Starlette/FastMCP код существует, но рабочий Gateway контейнер не принят. Go рассматривается как замена сетевого edge после проверки C2/OAuth-семантики и требований к долгим соединениям; это **не** согласие на второй параллельный Gateway или бездоказательное переписывание. Сначала реализовать один специфицированный ingress и доказать E2E подключение; далее Go можно внедрить как внутреннюю замену при проверенных streaming, backpressure, graceful restart и нагрузке.
+
+**Актуальный контракт SQL после D11 (2026-10-11):** четыре отдельные логические owner БД (`briareus_identity`, `briareus_access`, `briareus_platform`, `briareus_resources`); **один собственный PostgreSQL principal на owner БД** для startup Alembic и бизнес-runtime. Ранее предложенная пара `MIGRATION_POSTGRES_USER/PASSWORD` + runtime principal **отменена владельцем**. Собственная роль должна иметь DDL только в своей БД, не SUPERUSER/CREATEDB/CREATEROLE и без междоменного доступа. Никакого общего мигратора/ручного SQL bootstrap. Coolify обязан иметь корректные фактические `POSTGRES_DB/USER/PASSWORD/HOST` и при необходимости согласовать старые сохранённые ENV записи. Успешный Docker BUILD, статус `running:healthy` и миграция owner схемы — разные уровни проверки; подлинный login, права, проксируемый API и MCP отдельно проходят пользовательскую приёмку.
 
 ### 6.2 Маршрутизация и внутренний протокол
 
