@@ -4,6 +4,26 @@
 
 **Главное ограничение (2026-10-10): живой деплой изменений архитектуры данных НЕ разрешён.** Существующие `External Services` (PostgreSQL + Valkey), `Admin UI` и `Admin API` остаются действующими. Не создавать, не запускать `Authorization`, не выполнять старый общий `0001_briareus_baseline` → `0002_browser_telemetry` Alembic, не переименовывать, не удалять и не пересоздавать существующие volumes, DB, роли и сеть. Авторизация C1-B2/C2, выполнение MCP/Files/OS и новая независимая схема хранения ждут отдельной технической и операторской приёмки. Эта инструкция описывает **планируемое source/staging-состояние**; оно может ещё не совпадать с опубликованным `main` или Coolify.
 
+## Первичная подготовка четырёх баз без дополнительных сервисов
+
+В существующем External Services PostgreSQL используется производный образ
+postgres:18.6-alpine через deploy/data/Dockerfile, сохраняющий официальный
+docker-entrypoint.sh и действующий PGDATA. Перед положительным healthcheck
+стартовый скрипт deploy/data/postgres-entrypoint.sh через psql -X -q и
+ON_ERROR_STOP=1 запускает owner-bootstrap.psql внутри PostgreSQL.
+Создаются лишь отсутствующие четыре DB/роли; существующие проверяются
+без DROP/ALTER PASSWORD. briareus_dev и Valkey остаются неизменными.
+Миграции таблиц выполняются в ASGI lifespan каждого owner-сервиса.
+
+SQL-пароли поступают только как защищённые проектные ссылки вида
+{{project.IDENTITY_POSTGRES_PASSWORD}}; реальные значения не переносятся
+в Git и не печатаются, Shared Variables не изменяются. При отсутствующей
+или неверной ссылке процесс завершается и PostgreSQL healthcheck не проходит.
+Перед live deploy обязательны восстановимый PostgreSQL backup, проверка
+реальной резолюции Coolify Compose переменных (без раскрытия секретов),
+а также соответствия image/build context. Статический PASS не является
+подтверждением реального исполнения миграций.
+
 ## 1. Модуль, владелец данных и release
 
 Модуль/DDD-домен, Coolify Application, контейнер, worker, логическая PostgreSQL-база и физический PostgreSQL-инстанс — разные понятия. Несколько доменов могут совместно использовать один Postgres-процесс, но **самостоятельные владельцы постоянных данных обязаны иметь разные логические базы, роли, Alembic-ревизии, миграционные блокировки, lifecycle и API**. Не создавать БД для stateless Gateway/Web. Не создавать универсальный Core/Schema Init/migrator, владеющий чужим DDL.
@@ -28,7 +48,7 @@
 
 Рабочий процесс: GitHub `ArthurKoba/briareus` `main` → webhook → существующий Coolify на `tambov` → Docker Compose image build → обновление соответствующего контейнера. **Нет отдельной публикации wheel, release pins, загрузки артефактов или ручной сборки на другом хосте.** `uv` устанавливает Briareus из локальных исходников внутри builder-образа.
 
-Кеширование: сначала `COPY pyproject.toml uv.lock` + `uv sync --frozen --no-dev --no-install-project` (зависимости без проекта). Оба build-time `uv sync` используют BuildKit cache mount `/root/.cache/uv`, чтобы повторные сборки могли переиспользовать скачанные пакеты при инвалидированном Docker layer cache; это НЕ разделяет итоговые runtime-контейнеры. Далее `COPY README.md LICENSE .python-version` и `COPY services/ scripts/`, затем `uv sync --frozen --no-dev --no-editable` (установка проекта **во время build**; реальная версия доступна через `importlib.metadata.version('briareus')`). Для Web в обеих командах добавлен `--group web` (Playwright). Запуск контейнера вызывает только Uvicorn/ASGI, без повторного `uv sync`.
+Кеширование: сначала `COPY pyproject.toml uv.lock` + `uv sync --frozen --no-dev --no-install-project` (зависимости без проекта). Оба build-time `uv sync` используют BuildKit cache mount `/root/.cache/uv`, чтобы повторные сборки могли переиспользовать скачанные пакеты при инвалидированном Docker layer cache; это НЕ разделяет итоговые runtime-контейнеры. Далее `COPY README.md LICENSE .python-version` и `COPY services/ scripts/`, затем `uv sync --frozen --no-dev --no-editable --reinstall-package briareus` (принудительная переустановка локального проекта **во время build** после COPY исходников; реальная версия доступна через `importlib.metadata.version('briareus')`). Критически важно именно `--reinstall-package briareus`: без этого `uv` может переиспользовать устаревший wheel из общего BuildKit cache mount при неизменной версии `pyproject.toml`, и новый Git-коммит будет показывать старый `owner_runtime.py` внутри контейнера. Флаг затрагивает только Briareus, но сохраняет кеш сторонних зависимостей. Для Web в обеих командах добавлен `--group web` (Playwright). Запуск контейнера вызывает только Uvicorn/ASGI, без повторного `uv sync`.
 
 Обычный **Restart** использует прежний готовый образ и не запускает сборку. Обновление кода вызывает Docker build только по Watch Paths; если `uv.lock` не менялся, внешние зависимости должны браться из кешированного слоя. Admin UI (Bun/Vite + nginx) и vendor Data — отдельные release units. Пока общий Hatch-пакет содержит все Python-модули, каждый Python image COPYs полное дерево и имеет консервативные Watch Paths `services/**` + `scripts/**`. Это корректно, но может приводить к лишним пересборкам; уменьшить их безопасно можно после аудита реальных runtime-зависимостей или разделения пакетов. В первую очередь измерить Coolify build и restart latency, не включать лишний CI/CD до появления фактического узкого места.
 

@@ -1,0 +1,94 @@
+-- One-time/idempotent infrastructure provisioning; NOT business schema DDL.
+-- Runs from trusted Data PostgreSQL only after the upstream server accepts TCP.
+-- Secrets are read by psql from the existing protected project references.
+-- Never enable ECHO, ECHO_HIDDEN or log the generated CREATE ROLE statements.
+\set QUIET on
+-- Suppress sensitive provisioning statements in default server session logs.
+-- This uses the already-authorized Data PostgreSQL administrative connection.
+SET log_statement = 'none';
+SET log_min_error_statement = 'panic';
+\getenv iu IDENTITY_POSTGRES_USER
+\getenv ip IDENTITY_POSTGRES_PASSWORD
+\getenv au ACCESS_POSTGRES_USER
+\getenv ap ACCESS_POSTGRES_PASSWORD
+\getenv pu CONTROL_POSTGRES_USER
+\getenv pp CONTROL_POSTGRES_PASSWORD
+\getenv ru CATALOG_POSTGRES_USER
+\getenv rp CATALOG_POSTGRES_PASSWORD
+-- Exact non-superuser identity and a nonempty password are required. These
+-- values must already come from protected Coolify Project Shared references.
+SELECT (
+  :'iu' = 'briareus_identity_owner' AND length(:'ip') >= 16 AND left(:'ip',2) NOT IN ('{{','$' || '{')
+  AND :'au' = 'briareus_access_owner' AND length(:'ap') >= 16 AND left(:'ap',2) NOT IN ('{{','$' || '{')
+  AND :'pu' = 'briareus_platform_owner' AND length(:'pp') >= 16 AND left(:'pp',2) NOT IN ('{{','$' || '{')
+  AND :'ru' = 'briareus_resources_owner' AND length(:'rp') >= 16 AND left(:'rp',2) NOT IN ('{{','$' || '{')
+) AS valid_owner_refs
+\gset
+\if :valid_owner_refs
+\else
+\echo 'briareus owner bootstrap: missing/invalid scoped credential references'
+SELECT 1 / 0; -- explicit safe nonzero SQL failure (ON_ERROR_STOP)
+\endif
+
+SELECT format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'iu', :'ip')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'iu')
+\gexec
+SELECT format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'au', :'ap')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'au')
+\gexec
+SELECT format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'pu', :'pp')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'pu')
+\gexec
+SELECT format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', :'ru', :'rp')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'ru')
+\gexec
+
+SELECT format('CREATE DATABASE %I OWNER %I TEMPLATE template0 ENCODING %L', 'briareus_identity', :'iu', 'UTF8')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'briareus_identity')
+\gexec
+SELECT format('CREATE DATABASE %I OWNER %I TEMPLATE template0 ENCODING %L', 'briareus_access', :'au', 'UTF8')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'briareus_access')
+\gexec
+SELECT format('CREATE DATABASE %I OWNER %I TEMPLATE template0 ENCODING %L', 'briareus_platform', :'pu', 'UTF8')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'briareus_platform')
+\gexec
+SELECT format('CREATE DATABASE %I OWNER %I TEMPLATE template0 ENCODING %L', 'briareus_resources', :'ru', 'UTF8')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'briareus_resources')
+\gexec
+-- Restrict default cluster-wide CONNECT/TEMP on only the four new databases.
+REVOKE ALL ON DATABASE briareus_identity, briareus_access, briareus_platform, briareus_resources FROM PUBLIC;
+-- PostgreSQL database owner still has full rights on its own database.
+-- Refuse to mutate/adopt any pre-existing database owned by another principal.
+SELECT (
+  NOT EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE rolname IN (:'iu', :'au', :'pu', :'ru')
+      AND (NOT rolcanlogin OR rolinherit OR rolsuper OR rolcreatedb OR rolcreaterole
+           OR rolreplication OR rolbypassrls)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles r ON r.oid=m.member
+    WHERE r.rolname IN (:'iu', :'au', :'pu', :'ru')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM (VALUES
+      ('briareus_identity', :'iu'),
+      ('briareus_access', :'au'),
+      ('briareus_platform', :'pu'),
+      ('briareus_resources', :'ru')
+    ) wanted(db, role)
+    LEFT JOIN pg_database d ON d.datname=wanted.db
+    WHERE d.oid IS NULL OR pg_get_userbyid(d.datdba)<>wanted.role
+  )
+  AND (SELECT count(*) FROM pg_database
+       WHERE datname IN ('briareus_identity','briareus_access','briareus_platform','briareus_resources'))=4
+) AS owners_verified
+\gset
+\if :owners_verified
+\else
+\echo 'briareus owner bootstrap: existing owner/database privileges differ; manual reconciliation needed'
+SELECT 1 / 0; -- explicit safe nonzero SQL failure (ON_ERROR_STOP)
+\endif
+-- Owner-specific Alembic revision/DDL is intentionally handled by each
+-- existing owner application during its normal ASGI lifespan startup.

@@ -1,0 +1,5 @@
+*
+!deploy/
+!deploy/data/
+!deploy/data/postgres-entrypoint.sh
+!deploy/data/owner-bootstrap.psql

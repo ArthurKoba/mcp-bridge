@@ -15,7 +15,7 @@ RUN useradd -u 1000 -m -d /home/briareus briareus
 COPY README.md LICENSE .python-version ./
 COPY services/ ./services/
 COPY scripts/ ./scripts/
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable --reinstall-package briareus
 USER 1000:1000
 EXPOSE 8000
 # Each service starts its OWN Alembic coordinator. Missing DB/grants fail closed.

@@ -161,7 +161,14 @@ def run(source_root: Path, allow_pending: bool) -> None:
             if ext!={'file':'docker-compose.yaml','service':service}:
                 fatal(f'{module}: bad Coolify extends')
             for key,value in body.get('environment',{}).items():
-                if override['services'][service]['environment'].get(key)!=value:
+                actual=override['services'][service]['environment'].get(key)
+                if module=='data' and service=='briareus-postgres' and key in {
+                    f'{owner}_POSTGRES_{field}' for owner in ('IDENTITY','ACCESS','CONTROL','CATALOG')
+                    for field in ('USER','PASSWORD')
+                }:
+                    if value != '$'+'{'+key+':-}' or actual != '{{project.'+key+'}}':
+                        fatal(f'data: PostgreSQL bootstrap credential must be a protected Project reference: {key}')
+                elif actual!=value:
                     fatal(f'{module}: base/Coolify ENV mismatch {key}')
             used=set(REQUIRED.findall(str(override['services'][service]['environment'])))
             bindings=a.get('shared_variables',{})
@@ -180,8 +187,40 @@ def run(source_root: Path, allow_pending: bool) -> None:
                         or owner_key not in cfg[match.group(1)+'_shared']):
                     fatal(f'{module}: bad Shared binding {key}')
         if module=='data':
-            if any((ROOT/module/n).exists() for n in ('Dockerfile','greenfield_schema.py')):
-                fatal('manual schema initializer returned')
+            if (ROOT/module/'greenfield_schema.py').exists():
+                fatal('manual metadata initializer is forbidden')
+            expected_data={
+                'deploy/data/Dockerfile','deploy/data/Dockerfile.dockerignore',
+                'deploy/data/owner-bootstrap.psql',
+                'deploy/data/postgres-entrypoint.sh',
+                'deploy/data/docker-compose.yaml','deploy/data/docker-compose.coolify.yaml',
+            }
+            if set(watches)!=expected_data:
+                fatal('data: bootstrap inputs not fully watched')
+            docker=(ROOT/module/'Dockerfile')
+            shell=(ROOT/module/'postgres-entrypoint.sh')
+            sql=(ROOT/module/'owner-bootstrap.psql')
+            if not all(p.is_file() for p in (docker,shell,sql)):
+                fatal('data: missing existing-PostgreSQL-container owner bootstrap source')
+            if 'FROM postgres:18.6-alpine' not in docker.read_text():
+                fatal('data: upstream PostgreSQL version changed')
+            copy_ignore=(ROOT/module/'Dockerfile.dockerignore').read_text()
+            if any(x not in copy_ignore for x in ('!deploy/data/owner-bootstrap.psql',
+                                                   '!deploy/data/postgres-entrypoint.sh')):
+                fatal('data: Dockerfile context silently excludes bootstrap source')
+            if 'ENTRYPOINT ["/usr/local/bin/briareus-postgres-entrypoint"]' not in docker.read_text():
+                fatal('data: ordinary PostgreSQL entrypoint bootstrap gate missing')
+            if base['services']['briareus-postgres']['build'] != {
+                'context':'../..','dockerfile':'deploy/data/Dockerfile'
+            }:
+                fatal('data: PostgreSQL must build only its existing extended image')
+            if 'test -f /run/briareus-owner-databases-ready' not in str(base['services']['briareus-postgres']['healthcheck']):
+                fatal('data: readiness must gate on four provisioned owner stores')
+            if 'docker-entrypoint.sh "$@" &' not in shell.read_text() or 'ON_ERROR_STOP=1' not in shell.read_text():
+                fatal('data: SQL bootstrap not owned by existing PostgreSQL lifecycle')
+            for db in ('briareus_identity','briareus_access','briareus_platform','briareus_resources'):
+                if db not in sql.read_text():
+                    fatal(f'data: missing provisioned domain database: {db}')
             continue
         docker=ROOT/module/'Dockerfile'
         if not docker.is_file() or a['dockerfile']!=f'deploy/{module}/Dockerfile':
@@ -203,11 +242,11 @@ def run(source_root: Path, allow_pending: bool) -> None:
                 expected_deps='uv sync --frozen --no-dev --group web --no-install-project'
             if f'RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared {expected_deps}' not in dockertext:
                 fatal(f'{module}: missing cached dependency-only build layer')
-            expected_project='uv sync --frozen --no-dev --no-editable'
+            expected_project='uv sync --frozen --no-dev --no-editable --reinstall-package briareus'
             if module=='web':
-                expected_project='uv sync --frozen --no-dev --group web --no-editable'
+                expected_project='uv sync --frozen --no-dev --group web --no-editable --reinstall-package briareus'
             if f'RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared {expected_project}' not in dockertext:
-                fatal(f'{module}: Briareus not installed noneditably at image BUILD')
+                fatal(f'{module}: Briareus wheel not force-reinstalled from current Git source')
             if dockertext.index(expected_deps)>dockertext.index('COPY services/') or dockertext.index(expected_project)<dockertext.index('COPY scripts/'):
                 fatal(f'{module}: dependency cache or actual project installation wrong order')
             if 'CMD ' not in dockertext or 'uv sync ' in dockertext.split('CMD ')[-1]:
@@ -277,9 +316,9 @@ def run(source_root: Path, allow_pending: bool) -> None:
             if (source_root/'services/common/owner_migration_roles.py').exists():
                 fatal('obsolete separate migrator module returned')
             runtime_source=(source_root/'services/common/owner_runtime.py').read_text()
-            if 'result = await migrate_owner(database, local)' not in runtime_source:
+            if 'await migrate_owner(database, local, phase_change=diagnostic_phase)' not in runtime_source:
                 fatal('normal owner startup no longer runs own Alembic revisions')
-            if 'await verify_owner(database, local)' not in runtime_source:
+            if 'result = await verify_owner(database, local)' not in runtime_source:
                 fatal('independent read-only verification after migration missing')
             if 'alembic_greenfield' in docker.read_text()+cool.read_text():
                 fatal(f'{module}: old global Alembic graph in deploy image')
@@ -302,7 +341,7 @@ def run(source_root: Path, allow_pending: bool) -> None:
     if any(ROOT.glob('*/wheel-pin.json')) or (ROOT/'install_wheel_release.py').exists():
         fatal('old external wheel release artifacts still active')
     print('UV_DIRECT_SOURCE_STATIC_PASS; 14 Apps, 28 YAML, 12 first-party uv images, four owner DBs')
-    print('Dependencies cached before source COPY; local project installed non-editably at BUILD; no sync in service CMD.')
+    print('Dependencies cached before source COPY; local package force-reinstalled non-editably at BUILD; no uv sync in service CMD.')
     print('Actual Coolify image BUILD, new SQL role/DB/OS/C2 acceptance not established by STATIC.')
 
 
