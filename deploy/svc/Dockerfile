@@ -18,7 +18,7 @@ RUN useradd -u 1000 -m -d /home/svc svc
 COPY README.md LICENSE .python-version ./
 COPY services/ ./services/
 COPY scripts/ ./scripts/
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable --reinstall-package briareus
 USER 1000:1000
 EXPOSE 8000
 CMD ["/bin/sh", "-ec", "echo BRIAREUS_SVC_UNIFIED_RUNTIME_PENDING >&2; exit 78"]

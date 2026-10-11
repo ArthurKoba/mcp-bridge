@@ -22,8 +22,17 @@
         "TZ": "{{team.TZ}}",
         "POSTGRES_USER": "{{environment.POSTGRES_USER}}",
         "POSTGRES_PASSWORD": "{{environment.POSTGRES_PASSWORD}}",
-        "VALKEY_PASSWORD": "{{environment.VALKEY_PASSWORD}}"
-      }
+        "VALKEY_PASSWORD": "{{environment.VALKEY_PASSWORD}}",
+        "IDENTITY_POSTGRES_USER": "{{project.IDENTITY_POSTGRES_USER}}",
+        "IDENTITY_POSTGRES_PASSWORD": "{{project.IDENTITY_POSTGRES_PASSWORD}}",
+        "ACCESS_POSTGRES_USER": "{{project.ACCESS_POSTGRES_USER}}",
+        "ACCESS_POSTGRES_PASSWORD": "{{project.ACCESS_POSTGRES_PASSWORD}}",
+        "CONTROL_POSTGRES_USER": "{{project.CONTROL_POSTGRES_USER}}",
+        "CONTROL_POSTGRES_PASSWORD": "{{project.CONTROL_POSTGRES_PASSWORD}}",
+        "CATALOG_POSTGRES_USER": "{{project.CATALOG_POSTGRES_USER}}",
+        "CATALOG_POSTGRES_PASSWORD": "{{project.CATALOG_POSTGRES_PASSWORD}}"
+      },
+      "dockerfile": "deploy/data/Dockerfile"
     },
     {
       "name": "Identity",

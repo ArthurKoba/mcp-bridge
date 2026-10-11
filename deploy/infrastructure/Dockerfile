@@ -16,7 +16,7 @@ RUN useradd -u 1000 -m -d /home/bridge bridge
 COPY README.md LICENSE .python-version ./
 COPY services/ ./services/
 COPY scripts/ ./scripts/
-RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=shared uv sync --frozen --no-dev --no-editable --reinstall-package briareus
 USER 1000:1000
 EXPOSE 8000
 CMD ["/app/.venv/bin/python", "-m", "common.asgi"]
